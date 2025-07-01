@@ -57,37 +57,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchProjects: async () => {
     set({ loading: true });
     try {
-      // First get all projects
-      const { data: projects, error: projectsError } = await supabase
+      const { data, error } = await supabase
         .from('projects')
-        .select('*')
+        .select(`
+          *,
+          profiles!owner_id (
+            full_name,
+            email
+          )
+        `)
         .order('created_at', { ascending: false });
 
-      if (projectsError) throw projectsError;
+      if (error) {
+        console.error('Error fetching projects:', error);
+        set({ projects: [] });
+        return;
+      }
 
-      // Then get all unique owner IDs
-      const ownerIds = [...new Set(projects?.map(p => p.owner_id) || [])];
-      
-      // Fetch profiles for all owners
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, full_name')
-        .in('id', ownerIds);
-
-      if (profilesError) throw profilesError;
-
-      // Create a map of owner_id to full_name
-      const profileMap = new Map(profiles?.map(p => [p.id, p.full_name]) || []);
-
-      // Combine projects with profile data
-      const projectsWithProfiles = projects?.map(project => ({
-        ...project,
-        profiles: {
-          full_name: profileMap.get(project.owner_id) || 'Usuario Desconocido'
-        }
-      })) || [];
-
-      set({ projects: projectsWithProfiles });
+      console.log('Projects with profiles:', data); // DEBUG
+      set({ projects: data || [] });
     } catch (error) {
       console.error('Error fetching projects:', error);
       set({ projects: [] });
@@ -104,42 +92,28 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       throw new Error('User not authenticated');
     }
 
-    // Create the project
-    const { data: project, error: projectError } = await supabase
+    const { data, error } = await supabase
       .from('projects')
       .insert({ 
         name, 
         description,
         owner_id: user.id
       })
-      .select()
+      .select(`
+        *,
+        profiles!owner_id (
+          full_name,
+          email
+        )
+      `)
       .single();
 
-    if (projectError) throw projectError;
-
-    // Get the creator's profile
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError) {
-      console.warn('Could not fetch creator profile:', profileError);
-    }
-
-    // Combine project with profile data
-    const projectWithProfile = {
-      ...project,
-      profiles: {
-        full_name: profile?.full_name || 'Usuario'
-      }
-    };
+    if (error) throw error;
     
     const { projects } = get();
-    set({ projects: [projectWithProfile, ...projects] });
+    set({ projects: [data, ...projects] });
     
-    return projectWithProfile;
+    return data;
   },
 
   setCurrentProject: (project: Project) => {
