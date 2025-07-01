@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Users, BookOpen, BarChart3 } from 'lucide-react';
+import { Calendar, Users, BookOpen, BarChart3, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Project } from '../../lib/database.types';
 
@@ -50,6 +50,12 @@ export function ProjectCard({ project, stats }: ProjectCardProps) {
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
             {project.status}
           </span>
+        </div>
+
+        {/* Creator Info */}
+        <div className="flex items-center space-x-2 mb-4 text-sm text-gray-600">
+          <User className="h-4 w-4" />
+          <span>Creado por: {project.profiles?.full_name || 'Usuario'}</span>
         </div>
 
         {stats && (

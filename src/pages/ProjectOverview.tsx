@@ -9,7 +9,8 @@ import {
   ArrowRight,
   CheckCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  User
 } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { useProjectStore } from '../store/projectStore';
@@ -140,8 +141,14 @@ export function ProjectOverview() {
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">{currentProject.name}</h1>
           {currentProject.description && (
-            <p className="text-gray-600">{currentProject.description}</p>
+            <p className="text-gray-600 mb-3">{currentProject.description}</p>
           )}
+          
+          {/* Project Creator Info */}
+          <div className="flex items-center space-x-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 inline-flex">
+            <User className="h-4 w-4" />
+            <span>Creado por: {currentProject.profiles?.full_name || 'Usuario'}</span>
+          </div>
         </div>
 
         {/* Project Stats */}

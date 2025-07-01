@@ -59,7 +59,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const { data, error } = await supabase
         .from('projects')
-        .select('*')
+        .select(`
+          *,
+          profiles:owner_id (full_name)
+        `)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -86,7 +89,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         description,
         owner_id: user.id
       })
-      .select()
+      .select(`
+        *,
+        profiles:owner_id (full_name)
+      `)
       .single();
 
     if (error) throw error;
