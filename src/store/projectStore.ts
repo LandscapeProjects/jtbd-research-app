@@ -69,13 +69,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     console.log('🔍 1. Starting pure dynamic fetchProjects...');
     set({ loading: true, isFetching: true });
     
-    // Timeout promise with state cleanup
+    // Timeout promise with state cleanup - increased from 10 to 30 seconds
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
         console.log('⏱️ fetchProjects timeout - cleaning up...');
         set({ loading: false, isFetching: false });
-        reject(new Error('fetchProjects timeout after 10 seconds'));
-      }, 10000);
+        reject(new Error('fetchProjects timeout after 30 seconds'));
+      }, 30000);
     });
 
     const fetchPromise = async () => {
