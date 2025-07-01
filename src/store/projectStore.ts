@@ -340,32 +340,61 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createStory: async (data: Partial<Story>) => {
-    const { data: story, error } = await supabase
-      .from('stories')
-      .insert(data)
-      .select()
-      .single();
+    console.log('📝 Store: Creating story with data:', data);
+    
+    try {
+      const { data: story, error } = await supabase
+        .from('stories')
+        .insert(data)
+        .select()
+        .single();
 
-    if (error) throw error;
-    
-    const { stories } = get();
-    set({ stories: [story, ...stories] });
-    
-    return story;
+      if (error) {
+        console.error('❌ Store: Story creation failed:', error);
+        throw error;
+      }
+
+      console.log('✅ Store: Story created successfully:', story);
+      
+      // FIXED: Use functional update to prevent stale state
+      set((state) => ({
+        stories: [story, ...state.stories]
+      }));
+      
+      console.log('✅ Store: Stories state updated');
+      return story;
+      
+    } catch (error) {
+      console.error('💥 Store: createStory error:', error);
+      throw error;
+    }
   },
 
   updateStory: async (id: string, data: Partial<Story>) => {
-    const { error } = await supabase
-      .from('stories')
-      .update({ ...data, updated_at: new Date().toISOString() })
-      .eq('id', id);
-
-    if (error) throw error;
+    console.log('🔄 Store: Updating story:', id);
     
-    const { stories } = get();
-    set({ 
-      stories: stories.map(s => s.id === id ? { ...s, ...data } : s)
-    });
+    try {
+      const { error } = await supabase
+        .from('stories')
+        .update({ ...data, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (error) {
+        console.error('❌ Store: Story update failed:', error);
+        throw error;
+      }
+
+      console.log('✅ Store: Story updated successfully');
+      
+      // FIXED: Use functional update to prevent stale state
+      set((state) => ({
+        stories: state.stories.map(s => s.id === id ? { ...s, ...data } : s)
+      }));
+      
+    } catch (error) {
+      console.error('💥 Store: updateStory error:', error);
+      throw error;
+    }
   },
 
   fetchForces: async (projectId: string) => {
@@ -385,44 +414,87 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createForce: async (storyId: string, type: ForceType, description: string) => {
-    const { data: force, error } = await supabase
-      .from('forces')
-      .insert({ story_id: storyId, type, description })
-      .select()
-      .single();
+    console.log('🔥 Store: Creating force:', { storyId: storyId.slice(0, 8) + '...', type, description: description.slice(0, 30) + '...' });
+    
+    try {
+      const { data: force, error } = await supabase
+        .from('forces')
+        .insert({ story_id: storyId, type, description })
+        .select()
+        .single();
 
-    if (error) throw error;
-    
-    const { forces } = get();
-    set({ forces: [force, ...forces] });
-    
-    return force;
+      if (error) {
+        console.error('❌ Store: Force creation failed:', error);
+        throw error;
+      }
+
+      console.log('✅ Store: Force created successfully');
+      
+      // FIXED: Use functional update to prevent stale state
+      set((state) => ({
+        forces: [force, ...state.forces]
+      }));
+      
+      return force;
+      
+    } catch (error) {
+      console.error('💥 Store: createForce error:', error);
+      throw error;
+    }
   },
 
   updateForce: async (id: string, data: Partial<Force>) => {
-    const { error } = await supabase
-      .from('forces')
-      .update({ ...data, updated_at: new Date().toISOString() })
-      .eq('id', id);
-
-    if (error) throw error;
+    console.log('🔄 Store: Updating force:', id.slice(0, 8) + '...');
     
-    const { forces } = get();
-    set({ 
-      forces: forces.map(f => f.id === id ? { ...f, ...data } : f)
-    });
+    try {
+      const { error } = await supabase
+        .from('forces')
+        .update({ ...data, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (error) {
+        console.error('❌ Store: Force update failed:', error);
+        throw error;
+      }
+
+      console.log('✅ Store: Force updated successfully');
+      
+      // FIXED: Use functional update to prevent stale state
+      set((state) => ({
+        forces: state.forces.map(f => f.id === id ? { ...f, ...data } : f)
+      }));
+      
+    } catch (error) {
+      console.error('💥 Store: updateForce error:', error);
+      throw error;
+    }
   },
 
   deleteForce: async (id: string) => {
-    const { error } = await supabase
-      .from('forces')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
+    console.log('🗑️ Store: Deleting force:', id.slice(0, 8) + '...');
     
-    const { forces } = get();
-    set({ forces: forces.filter(f => f.id !== id) });
+    try {
+      const { error } = await supabase
+        .from('forces')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('❌ Store: Force deletion failed:', error);
+        throw error;
+      }
+
+      console.log('✅ Store: Force deleted successfully');
+      
+      // FIXED: Use functional update to prevent stale state
+      set((state) => ({
+        forces: state.forces.filter(f => f.id !== id)
+      }));
+      
+    } catch (error) {
+      console.error('💥 Store: deleteForce error:', error);
+      throw error;
+    }
   },
 
   fetchForceGroups: async (projectId: string) => {
