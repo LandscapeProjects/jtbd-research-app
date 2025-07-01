@@ -36,9 +36,12 @@ export interface Database {
           status: string;
           created_at: string;
           updated_at: string;
+          // ARREGLADO: Ahora coincide con los datos reales del código
           profiles?: {
+            id: string;        // ← Agregado id
             full_name: string;
-          };
+            email: string;     // ← Agregado email
+          } | null;           // ← Permitir null explícitamente
         };
         Insert: {
           id?: string;
