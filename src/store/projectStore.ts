@@ -57,27 +57,55 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchProjects: async () => {
     set({ loading: true });
     try {
-      const { data, error } = await supabase
+      // 1. Obtener proyectos
+      const { data: projects, error: projectsError } = await supabase
         .from('projects')
-        .select(`
-          *,
-          profiles!owner_id (
-            full_name,
-            email
-          )
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error fetching projects:', error);
+      if (projectsError) {
+        console.error('Error fetching projects:', projectsError);
         set({ projects: [] });
         return;
       }
 
-      console.log('Projects with profiles:', data); // DEBUG
-      set({ projects: data || [] });
+      if (!projects || projects.length === 0) {
+        console.log('No projects found');
+        set({ projects: [] });
+        return;
+      }
+
+      console.log('Raw projects:', projects);
+
+      // 2. Obtener owner IDs únicos
+      const ownerIds = [...new Set(projects.map(p => p.owner_id))];
+      console.log('Owner IDs:', ownerIds);
+      
+      // 3. Obtener profiles
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', ownerIds);
+
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+      }
+
+      console.log('Profiles data:', profiles);
+
+      // 4. Combinar manualmente
+      const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
+      console.log('Profile map:', profileMap);
+      
+      const projectsWithProfiles = projects.map(project => ({
+        ...project,
+        profiles: profileMap.get(project.owner_id) || null
+      }));
+
+      console.log('Final projects with profiles:', projectsWithProfiles);
+      set({ projects: projectsWithProfiles });
     } catch (error) {
-      console.error('Error fetching projects:', error);
+      console.error('Error in fetchProjects:', error);
       set({ projects: [] });
     } finally {
       set({ loading: false });
@@ -99,21 +127,27 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         description,
         owner_id: user.id
       })
-      .select(`
-        *,
-        profiles!owner_id (
-          full_name,
-          email
-        )
-      `)
+      .select()
       .single();
 
     if (error) throw error;
     
-    const { projects } = get();
-    set({ projects: [data, ...projects] });
+    // Get the profile for the new project
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .eq('id', user.id)
+      .single();
+
+    const projectWithProfile = {
+      ...data,
+      profiles: profile || null
+    };
     
-    return data;
+    const { projects } = get();
+    set({ projects: [projectWithProfile, ...projects] });
+    
+    return projectWithProfile;
   },
 
   setCurrentProject: (project: Project) => {
