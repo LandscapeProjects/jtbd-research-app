@@ -5,6 +5,17 @@ import { useAuthStore } from '../../store/authStore';
 export function Header() {
   const { profile, signOut } = useAuthStore();
 
+  const handleSignOut = async () => {
+    try {
+      console.log('🚪 Sign out button clicked');
+      await signOut();
+    } catch (error) {
+      console.error('Error during sign out:', error);
+      // Force redirect even if there's an error
+      window.location.href = '/';
+    }
+  };
+
   return (
     <header className="bg-white border-b border-gray-200 px-6 py-4">
       <div className="flex items-center justify-between">
@@ -22,8 +33,8 @@ export function Header() {
           </div>
           
           <button
-            onClick={signOut}
-            className="flex items-center space-x-2 text-gray-600 hover:text-gray-800 transition-colors"
+            onClick={handleSignOut}
+            className="flex items-center space-x-2 text-gray-600 hover:text-gray-800 transition-colors px-3 py-2 rounded-lg hover:bg-gray-100"
           >
             <LogOut className="h-4 w-4" />
             <span className="text-sm">Sign Out</span>
