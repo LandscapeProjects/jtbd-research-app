@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Plus, Users, Calendar, User, CheckCircle, AlertTriangle, BookOpen, ArrowDown } from 'lucide-react';
+import { Plus, Users, Calendar, User, CheckCircle, AlertTriangle, BookOpen, ArrowDown, X } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { StoriesManager } from '../components/interviews/StoriesManager';
 import { useProjectStore } from '../store/projectStore';
@@ -41,11 +41,37 @@ export function Interviews() {
     }
   }, [projectId, fetchInterviews, fetchStories, fetchForces]);
 
+  const handleNewInterviewClick = () => {
+    console.log('🎯 New Interview button clicked');
+    console.log('📋 Current form state:', { isFormOpen, currentInterview });
+    
+    // Reset any existing state
+    setCurrentInterview(null);
+    setSelectedInterviewId(null);
+    setFormData({
+      participant_name: '',
+      participant_age: '',
+      participant_gender: '',
+      interview_date: new Date().toISOString().split('T')[0],
+      context: '',
+    });
+    
+    // Open the form
+    setIsFormOpen(true);
+    console.log('✅ Form should now be open');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!projectId) return;
+    console.log('📝 Form submitted with data:', formData);
+    
+    if (!projectId) {
+      console.error('❌ No project ID available');
+      return;
+    }
 
     try {
+      console.log('🚀 Creating interview...');
       const interview = await createInterview({
         project_id: projectId,
         participant_name: formData.participant_name,
@@ -54,6 +80,8 @@ export function Interviews() {
         interview_date: formData.interview_date,
         context: formData.context,
       });
+
+      console.log('✅ Interview created:', interview);
 
       // Set as current interview and scroll to stories section
       setCurrentInterview(interview);
@@ -77,11 +105,12 @@ export function Interviews() {
       }, 100);
 
     } catch (error) {
-      console.error('Error creating interview:', error);
+      console.error('💥 Error creating interview:', error);
     }
   };
 
   const handleSelectExistingInterview = (interview: Interview) => {
+    console.log('📋 Selected existing interview:', interview.participant_name);
     setCurrentInterview(interview);
     setSelectedInterviewId(interview.id);
     
@@ -115,6 +144,7 @@ export function Interviews() {
   };
 
   const resetForm = () => {
+    console.log('🔄 Resetting form');
     setIsFormOpen(false);
     setCurrentInterview(null);
     setSelectedInterviewId(null);
@@ -127,6 +157,14 @@ export function Interviews() {
     });
   };
 
+  console.log('🔍 Interviews page render state:', {
+    projectId,
+    isFormOpen,
+    currentInterview: currentInterview?.participant_name || 'none',
+    interviewsCount: interviews.length,
+    loading
+  });
+
   return (
     <Layout projectId={projectId}>
       <div className="p-6 max-w-6xl mx-auto">
@@ -138,13 +176,23 @@ export function Interviews() {
             </p>
           </div>
           <button
-            onClick={() => setIsFormOpen(true)}
+            onClick={handleNewInterviewClick}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center shadow-sm"
+            type="button"
           >
             <Plus className="h-4 w-4 mr-2" />
             New Interview
           </button>
         </div>
+
+        {/* Debug Info - Remove in production */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm">
+            <strong>Debug:</strong> Form Open: {isFormOpen ? 'YES' : 'NO'} | 
+            Current Interview: {currentInterview?.participant_name || 'None'} | 
+            Interviews: {interviews.length}
+          </div>
+        )}
 
         {/* Project Overview Stats */}
         {interviews.length > 0 && (
@@ -195,7 +243,16 @@ export function Interviews() {
         {/* Step 1: Interview Creation Form */}
         {isFormOpen && (
           <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 mb-8">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">📋 Create New Interview</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">📋 Create New Interview</h2>
+              <button
+                onClick={resetForm}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                type="button"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -409,7 +466,7 @@ export function Interviews() {
             </p>
             <div className="mt-6">
               <button
-                onClick={() => setIsFormOpen(true)}
+                onClick={handleNewInterviewClick}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center mx-auto"
               >
                 <Plus className="h-4 w-4 mr-2" />
