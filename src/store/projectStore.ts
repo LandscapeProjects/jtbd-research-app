@@ -11,10 +11,11 @@ interface ProjectState {
   forceGroups: ForceGroup[];
   matrixEntries: MatrixEntry[];
   loading: boolean;
-  isFetching: boolean; // NEW: Guard against concurrent calls
+  isFetching: boolean; // Guard against concurrent calls
   
   // Project operations
   fetchProjects: () => Promise<void>;
+  refreshProfiles: () => Promise<void>; // NEW: Pure dynamic profile refresh
   createProject: (name: string, description?: string) => Promise<Project>;
   setCurrentProject: (project: Project) => void;
   
@@ -54,18 +55,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   forceGroups: [],
   matrixEntries: [],
   loading: false,
-  isFetching: false, // NEW: Initially not fetching
+  isFetching: false,
 
-  // RACE CONDITION PROTECTED VERSION of fetchProjects
+  // PURE DYNAMIC VERSION of fetchProjects - NO HARDCODED DATA
   fetchProjects: async () => {
-    // GUARD: Prevent concurrent calls
+    // KEEP: Race condition guard
     const { isFetching } = get();
     if (isFetching) {
       console.log('⚠️ fetchProjects already in progress, skipping...');
       return;
     }
 
-    console.log('🔍 1. Starting guarded fetchProjects...');
+    console.log('🔍 1. Starting pure dynamic fetchProjects...');
     set({ loading: true, isFetching: true });
     
     // Timeout promise with state cleanup
@@ -79,85 +80,132 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     const fetchPromise = async () => {
       try {
-        console.log('🔍 2. Testing basic projects query...');
+        console.log('🔍 2. Querying projects...');
         
-        // SIMPLIFIED QUERY - just essential fields with limit
+        // KEEP: Stable projects query
         const { data: projects, error: projectsError } = await supabase
           .from('projects')
           .select('id, name, description, owner_id, status, created_at')
           .limit(50)
           .order('created_at', { ascending: false });
 
-        console.log('🔍 3. Basic query result:', { 
+        console.log('🔍 3. Projects result:', { 
           success: !!projects,
           count: projects?.length || 0,
           error: projectsError?.message || 'none'
         });
 
         if (projectsError) {
-          console.error('❌ Projects query error:', projectsError);
           throw new Error(`Projects query failed: ${projectsError.message}`);
         }
 
-        if (!projects || projects.length === 0) {
-          console.log('📭 4. No projects found, setting empty array');
+        if (!projects?.length) {
+          console.log('📭 4. No projects found');
           set({ projects: [] });
           return;
         }
 
-        // Skip profiles query for now - use hardcoded fallback
-        console.log('🔍 4. Setting projects with hardcoded profiles...');
-        const projectsWithFallback = projects.map(project => ({
-          ...project,
-          profiles: {
-            id: project.owner_id,
-            full_name: project.owner_id === '61908872-7574-41a6-aadc-d5171b70c051' ? 'David García' :
-                      project.owner_id === '1fad8220-918f-49b7-bc97-11570f4b6c9e' ? 'Pedro Rodriguez' :
-                      project.owner_id === '84451afe-546f-489d-80f0-1bfaa47242c3' ? 'Guillermo Sosa' : 'Usuario',
-            email: project.owner_id === '61908872-7574-41a6-aadc-d5171b70c051' ? 'david@example.com' :
-                   project.owner_id === '1fad8220-918f-49b7-bc97-11570f4b6c9e' ? 'pedro@avilatek.dev' :
-                   project.owner_id === '84451afe-546f-489d-80f0-1bfaa47242c3' ? 'guillermososa99@gmail.com' : 'user@example.com'
-          }
-        }));
+        console.log('🔍 4. Extracting owner IDs...');
+        const ownerIds = [...new Set(projects.map(p => p.owner_id))];
+        console.log('🔍 5. Owner IDs to query:', ownerIds.map(id => id.slice(0,8) + '...'));
 
-        console.log('✅ 5. Success - setting projects:', projectsWithFallback.length);
-        set({ projects: projectsWithFallback });
+        console.log('🔍 6. Querying profiles dynamically...');
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', ownerIds);
+
+        console.log('🔍 7. Profiles result:', { 
+          success: !!profiles,
+          requested: ownerIds.length,
+          found: profiles?.length || 0,
+          error: profilesError?.message || 'none'
+        });
+
+        if (profilesError) {
+          console.error('❌ Profiles query error:', profilesError);
+          // Continue without profiles rather than fail completely
+        }
+
+        console.log('🔍 8. Creating dynamic profile map...');
+        const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
+        
+        // Log what we found for each user
+        ownerIds.forEach(id => {
+          const profile = profileMap.get(id);
+          console.log(`🔗 Owner ${id.slice(0,8)}... → ${profile ? `Found: ${profile.full_name}` : 'NOT FOUND'}`);
+        });
+
+        console.log('🔍 9. Combining projects with dynamic profiles...');
+        const projectsWithProfiles = projects.map(project => {
+          const profile = profileMap.get(project.owner_id);
+          
+          return {
+            ...project,
+            profiles: profile || null // PURE - only real data or null
+          };
+        });
+
+        console.log('✅ 10. Success - pure dynamic data loaded');
+        console.log(`📊 Projects: ${projectsWithProfiles.length}, Profiles found: ${profiles?.length || 0}`);
+        
+        set({ projects: projectsWithProfiles });
         
       } catch (error: any) {
         console.error('💥 Error in fetchProjects:', error);
-        
-        // EMERGENCY FALLBACK - static projects if query fails
-        console.log('🚨 Using emergency fallback projects...');
-        const fallbackProjects = [
-          {
-            id: 'fallback-1',
-            name: 'Emergency Fallback Project',
-            description: 'This is a fallback project while we fix the database issue',
-            owner_id: '61908872-7574-41a6-aadc-d5171b70c051',
-            status: 'active',
-            created_at: new Date().toISOString(),
-            profiles: {
-              id: '61908872-7574-41a6-aadc-d5171b70c051',
-              full_name: 'David García',
-              email: 'david@example.com'
-            }
-          }
-        ];
-        
-        set({ projects: fallbackProjects });
+        set({ projects: [] });
         throw error; // Re-throw to be caught by Promise.race
       }
     };
 
     try {
       await Promise.race([fetchPromise(), timeoutPromise]);
-      console.log('✅ 6. fetchProjects completed successfully');
+      console.log('✅ 11. fetchProjects completed successfully');
     } catch (error: any) {
       console.error('💥 fetchProjects failed/timed out:', error);
-      // Fallback is already set in fetchPromise catch block
+      set({ projects: [] });
     } finally {
-      console.log('🔍 7. Cleanup - resetting flags');
+      console.log('🔍 12. Cleanup - resetting flags');
       set({ loading: false, isFetching: false });
+    }
+  },
+
+  // NEW: Pure dynamic profile refresh function
+  refreshProfiles: async () => {
+    const { projects, isFetching } = get();
+    
+    if (isFetching || !projects.length) {
+      console.log('⚠️ Cannot refresh profiles - store busy or no projects');
+      return;
+    }
+    
+    try {
+      console.log('🔄 Refreshing profiles from database...');
+      const ownerIds = [...new Set(projects.map(p => p.owner_id))];
+      
+      const { data: profiles, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', ownerIds);
+      
+      if (error) {
+        console.error('❌ Profile refresh error:', error);
+        return;
+      }
+      
+      console.log(`🔄 Profile refresh: found ${profiles?.length || 0} of ${ownerIds.length} requested`);
+      
+      const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
+      
+      const updatedProjects = projects.map(project => ({
+        ...project,
+        profiles: profileMap.get(project.owner_id) || null // Pure dynamic only
+      }));
+      
+      set({ projects: updatedProjects });
+      console.log('✅ Pure dynamic profiles refreshed');
+    } catch (error) {
+      console.error('💥 Profile refresh failed:', error);
     }
   },
 
@@ -181,7 +229,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     if (error) throw error;
     
-    // Get the profile for the new project
+    // Get the profile for the new project - PURE DYNAMIC
     const { data: profile } = await supabase
       .from('profiles')
       .select('id, full_name, email')
@@ -190,7 +238,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     const projectWithProfile = {
       ...data,
-      profiles: profile || null
+      profiles: profile || null // Pure - only real data or null
     };
     
     const { projects } = get();

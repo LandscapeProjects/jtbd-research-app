@@ -34,23 +34,17 @@ export function ProjectCard({ project, stats }: ProjectCardProps) {
     }
   };
 
-  // Debug log to see what we're getting
-  console.log('ProjectCard project data:', project);
-  console.log('Project profiles:', project.profiles);
-
-  // Get the creator name with fallback
+  // PURE DYNAMIC: Get creator name with clean fallback logic
   const getCreatorName = () => {
     if (project.profiles?.full_name) {
       return project.profiles.full_name;
     }
     
-    // Fallback to email username if no full_name
     if (project.profiles?.email) {
       return project.profiles.email.split('@')[0];
     }
     
-    // Last resort fallback
-    return 'Usuario';
+    return 'Usuario'; // Only fallback - no hardcoded names
   };
 
   return (
@@ -71,10 +65,13 @@ export function ProjectCard({ project, stats }: ProjectCardProps) {
           </span>
         </div>
 
-        {/* Creator Info */}
+        {/* Creator Info - Pure Dynamic */}
         <div className="flex items-center space-x-2 mb-4 text-sm text-gray-600">
           <User className="h-4 w-4" />
-          <span>Creado por: {getCreatorName()}</span>
+          <span>Created by: {getCreatorName()}</span>
+          {!project.profiles && (
+            <span className="text-xs text-amber-600 font-medium">(Profile not found)</span>
+          )}
         </div>
 
         {stats && (

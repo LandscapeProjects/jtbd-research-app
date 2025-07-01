@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, BarChart3, Users, BookOpen, RefreshCw } from 'lucide-react';
+import { Plus, Search, BarChart3, Users, BookOpen, RefreshCw, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { ProjectCard } from '../components/projects/ProjectCard';
@@ -11,27 +11,23 @@ export function Dashboard() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string>('');
   
-  const { projects, loading, isFetching, fetchProjects } = useProjectStore();
+  const { projects, loading, isFetching, fetchProjects, refreshProfiles } = useProjectStore();
 
   // FIX: Add debouncing and cleanup to prevent rapid successive calls
   useEffect(() => {
     const loadProjects = async () => {
       try {
         setError(null);
-        setDebugInfo('Loading projects...');
         console.log('📊 Dashboard requesting projects...');
         
         // Small delay to prevent rapid successive calls
         await new Promise(resolve => setTimeout(resolve, 100));
         
         await fetchProjects();
-        setDebugInfo('Projects loaded successfully');
       } catch (err: any) {
         console.error('Dashboard failed to load projects:', err);
         setError(err.message || 'Failed to load projects');
-        setDebugInfo(`Error: ${err.message}`);
       }
     };
     
@@ -40,7 +36,6 @@ export function Dashboard() {
     // Cleanup function when component unmounts
     return () => {
       console.log('📊 Dashboard unmounting - cleanup any pending operations');
-      // Note: We can't directly call set() here, but the isFetching guard will handle concurrent calls
     };
   }, []); // Keep empty dependency array to prevent infinite loop
 
@@ -54,21 +49,26 @@ export function Dashboard() {
   };
 
   const handleManualRefresh = async () => {
-    console.log('🔄 Manual refresh - force reset first...');
-    setDebugInfo('Manual refresh started...');
-    
+    console.log('🔄 Manual pure dynamic refresh...');
     try {
-      // Wait a moment then try fresh call (the isFetching guard will handle any conflicts)
+      // Force reset any stuck states
       setTimeout(async () => {
         console.log('🔄 Attempting fresh fetchProjects...');
         await fetchProjects();
-        setDebugInfo('Manual refresh completed');
         setError(null);
-      }, 500);
+      }, 300);
     } catch (err: any) {
       console.error('Manual refresh failed:', err);
       setError(err.message);
-      setDebugInfo(`Manual refresh failed: ${err.message}`);
+    }
+  };
+
+  const handleRefreshProfiles = async () => {
+    console.log('👤 Refreshing profiles only...');
+    try {
+      await refreshProfiles();
+    } catch (err: any) {
+      console.error('Profile refresh failed:', err);
     }
   };
 
@@ -122,29 +122,47 @@ export function Dashboard() {
             </button>
           </div>
 
-          {/* Debug Panel - Temporary for debugging race conditions */}
-          <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-yellow-800 mb-2">
-                  <strong>Debug Info:</strong> {debugInfo}
-                </p>
-                <p className="text-xs text-yellow-700">
-                  Loading: {loading ? 'TRUE' : 'FALSE'} | 
-                  Fetching: {isFetching ? 'TRUE' : 'FALSE'} | 
-                  Projects: {projects.length} | 
-                  Check console for detailed logs (🔍 1-7)
-                </p>
-              </div>
+          {/* Pure Dynamic Data Status Panel */}
+          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded">
+            <div className="text-sm text-green-800 mb-2">
+              <p><strong>Pure Dynamic Data Status:</strong></p>
+              <p>Projects: {projects.length} | Loading: {loading ? 'YES' : 'NO'} | Fetching: {isFetching ? 'YES' : 'NO'}</p>
+              <p>
+                Profiles Found: {projects.filter(p => p.profiles?.full_name).length} | 
+                Missing: {projects.filter(p => !p.profiles?.full_name).length}
+              </p>
+              <p>Last Update: {new Date().toLocaleTimeString()}</p>
+            </div>
+            
+            <div className="space-x-2">
               <button 
                 onClick={handleManualRefresh}
                 disabled={loading || isFetching}
-                className="px-3 py-1 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 disabled:opacity-50 flex items-center"
+                className="px-3 py-1 bg-green-600 text-white rounded text-sm disabled:opacity-50 hover:bg-green-700"
               >
-                <RefreshCw className={`h-3 w-3 mr-1 ${(loading || isFetching) ? 'animate-spin' : ''}`} />
-                {(loading || isFetching) ? 'Loading...' : 'Force Refresh'}
+                <RefreshCw className={`h-3 w-3 inline mr-1 ${(loading || isFetching) ? 'animate-spin' : ''}`} />
+                {(loading || isFetching) ? 'Loading...' : '🔄 Refresh All'}
+              </button>
+              
+              <button 
+                onClick={handleRefreshProfiles}
+                disabled={loading || isFetching}
+                className="px-3 py-1 bg-blue-600 text-white rounded text-sm disabled:opacity-50 hover:bg-blue-700"
+              >
+                <User className="h-3 w-3 inline mr-1" />
+                👤 Refresh Profiles
               </button>
             </div>
+            
+            {/* Show missing profiles for debugging */}
+            {projects.some(p => !p.profiles?.full_name) && (
+              <div className="mt-2 text-xs text-red-600">
+                Missing profiles for: {projects
+                  .filter(p => !p.profiles?.full_name)
+                  .map(p => p.owner_id.slice(0,8))
+                  .join(', ')}...
+              </div>
+            )}
           </div>
 
           {/* Quick Stats */}
@@ -209,9 +227,9 @@ export function Dashboard() {
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <p className="text-gray-600">
-                {isFetching ? 'Loading projects...' : 'Processing...'}
+                {isFetching ? 'Loading pure dynamic data...' : 'Processing...'}
               </p>
-              <p className="text-sm text-gray-500 mt-2">Check console for debug logs (🔍 1-7)</p>
+              <p className="text-sm text-gray-500 mt-2">Check console for debug logs (🔍 1-12)</p>
             </div>
           </div>
         ) : filteredProjects.length > 0 ? (
