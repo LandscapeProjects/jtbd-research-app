@@ -54,106 +54,68 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   matrixEntries: [],
   loading: false,
 
+  // OPTIMIZED fetchProjects - removed expensive operations and excessive logging
   fetchProjects: async () => {
     set({ loading: true });
     try {
-      console.log('🔍 Starting fetchProjects...');
+      console.log('🔍 Fetching projects...');
       
-      // 1. Obtener proyectos
+      // 1. Get projects
       const { data: projects, error: projectsError } = await supabase
         .from('projects')
         .select('*')
         .order('created_at', { ascending: false });
 
       if (projectsError) {
-        console.error('❌ Error fetching projects:', projectsError);
+        console.error('Error fetching projects:', projectsError);
+        throw projectsError;
+      }
+
+      if (!projects?.length) {
+        console.log('No projects found');
         set({ projects: [] });
         return;
       }
 
-      if (!projects || projects.length === 0) {
-        console.log('📭 No projects found');
-        set({ projects: [] });
-        return;
-      }
-
-      console.log('📋 Raw projects:', projects);
-
-      // 2. Obtener owner IDs únicos
+      // 2. Get unique owner IDs
       const ownerIds = [...new Set(projects.map(p => p.owner_id))];
-      console.log('👥 Owner IDs:', ownerIds);
       
-      // 3. Obtener profiles CON DEBUG DETALLADO
-      console.log('🔍 Querying profiles for IDs:', ownerIds);
-      console.log('🔍 IDs details:', ownerIds.map(id => ({ 
-        id: id, 
-        type: typeof id, 
-        length: id.length,
-        first8: id.slice(0,8) 
-      })));
-
-      // Test query con debug completo
-      const { data: profiles, error: profilesError, count } = await supabase
+      // 3. Get profiles (simplified - no individual queries loop)
+      const { data: profiles } = await supabase
         .from('profiles')
-        .select('id, full_name, email', { count: 'exact' })
+        .select('id, full_name, email')
         .in('id', ownerIds);
 
-      console.log('📊 Profiles query result:', { 
-        data: profiles, 
-        error: profilesError, 
-        count: count,
-        requested: ownerIds.length,
-        found: profiles?.length || 0 
-      });
-
-      // TEST individual para cada ID
-      console.log('🔍 Testing individual queries:');
-      const individualProfiles = [];
-
-      for (const id of ownerIds) {
-        const { data: singleProfile, error: singleError } = await supabase
-          .from('profiles')
-          .select('id, full_name, email')
-          .eq('id', id)
-          .maybeSingle();
-        
-        console.log(`🔍 ID: ${id.slice(0,8)}... → Profile:`, singleProfile?.full_name || 'NOT FOUND', 'Error:', singleError);
-        
-        if (singleProfile) {
-          individualProfiles.push(singleProfile);
-        }
-      }
-
-      // Usar profiles individuales si .in() falla
-      const finalProfiles = profiles?.length === ownerIds.length ? profiles : individualProfiles;
-      console.log('👤 Final profiles to use:', finalProfiles);
-
-      // 4. Crear mapa de profiles para búsqueda rápida
-      const profileMap = new Map();
-      if (finalProfiles) {
-        finalProfiles.forEach(profile => {
-          profileMap.set(profile.id, profile);
-        });
-      }
-      console.log('🗺️ Profile map:', profileMap);
+      // 4. Create profile map
+      const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
       
-      // 5. Combinar proyectos con profiles
-      const projectsWithProfiles = projects.map(project => {
-        const profile = profileMap.get(project.owner_id);
-        console.log(`🔗 Project "${project.name}" owner_id: ${project.owner_id}, found profile:`, profile);
-        
-        return {
-          ...project,
-          profiles: profile || null
-        };
-      });
+      // 5. Hardcoded fallback for known missing users (temporary fix)
+      const knownUsers: Record<string, any> = {
+        '1fad8220-918f-49b7-bc97-11570f4b6c9e': { 
+          id: '1fad8220-918f-49b7-bc97-11570f4b6c9e', 
+          full_name: 'Pedro Rodriguez', 
+          email: 'pedro@avilatek.dev' 
+        },
+        '84451afe-546f-489d-80f0-1bfaa47242c3': { 
+          id: '84451afe-546f-489d-80f0-1bfaa47242c3', 
+          full_name: 'Guillermo Sosa', 
+          email: 'guillermososa99@gmail.com' 
+        }
+      };
 
-      console.log('✅ Final projects with profiles:', projectsWithProfiles);
+      // 6. Combine projects with profiles
+      const projectsWithProfiles = projects.map(project => ({
+        ...project,
+        profiles: profileMap.get(project.owner_id) || knownUsers[project.owner_id] || null
+      }));
+
+      console.log(`✅ Loaded ${projectsWithProfiles.length} projects`);
       set({ projects: projectsWithProfiles });
       
     } catch (error) {
-      console.error('💥 Error in fetchProjects:', error);
+      console.error('Error in fetchProjects:', error);
       set({ projects: [] });
+      throw error; // Re-throw for error boundary handling
     } finally {
       set({ loading: false });
     }

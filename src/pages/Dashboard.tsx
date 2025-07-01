@@ -10,12 +10,24 @@ export function Dashboard() {
   const navigate = useNavigate();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState<string | null>(null);
   
   const { projects, loading, fetchProjects } = useProjectStore();
 
+  // FIX: Remove fetchProjects from dependency array to prevent infinite loop
   useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+    const loadProjects = async () => {
+      try {
+        setError(null);
+        await fetchProjects();
+      } catch (err: any) {
+        console.error('Dashboard failed to load projects:', err);
+        setError(err.message || 'Failed to load projects');
+      }
+    };
+    
+    loadProjects();
+  }, []); // Empty dependency array - only run once on mount
 
   const filteredProjects = projects.filter(project =>
     project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -25,6 +37,26 @@ export function Dashboard() {
   const handleProjectCreated = (projectId: string) => {
     navigate(`/project/${projectId}`);
   };
+
+  // Error boundary for failed project loading
+  if (error) {
+    return (
+      <Layout>
+        <div className="p-6 text-center">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md mx-auto">
+            <h3 className="text-lg font-medium text-red-900 mb-2">Failed to Load Projects</h3>
+            <p className="text-red-700 mb-4">{error}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
