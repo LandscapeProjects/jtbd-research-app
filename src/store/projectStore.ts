@@ -57,6 +57,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchProjects: async () => {
     set({ loading: true });
     try {
+      console.log('🔍 Starting fetchProjects...');
+      
       // 1. Obtener proyectos
       const { data: projects, error: projectsError } = await supabase
         .from('projects')
@@ -64,22 +66,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         .order('created_at', { ascending: false });
 
       if (projectsError) {
-        console.error('Error fetching projects:', projectsError);
+        console.error('❌ Error fetching projects:', projectsError);
         set({ projects: [] });
         return;
       }
 
       if (!projects || projects.length === 0) {
-        console.log('No projects found');
+        console.log('📭 No projects found');
         set({ projects: [] });
         return;
       }
 
-      console.log('Raw projects:', projects);
+      console.log('📋 Raw projects:', projects);
 
       // 2. Obtener owner IDs únicos
       const ownerIds = [...new Set(projects.map(p => p.owner_id))];
-      console.log('Owner IDs:', ownerIds);
+      console.log('👥 Owner IDs:', ownerIds);
       
       // 3. Obtener profiles
       const { data: profiles, error: profilesError } = await supabase
@@ -88,24 +90,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         .in('id', ownerIds);
 
       if (profilesError) {
-        console.error('Error fetching profiles:', profilesError);
+        console.error('❌ Error fetching profiles:', profilesError);
       }
 
-      console.log('Profiles data:', profiles);
+      console.log('👤 Profiles data:', profiles);
 
-      // 4. Combinar manualmente
-      const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
-      console.log('Profile map:', profileMap);
+      // 4. Crear mapa de profiles para búsqueda rápida
+      const profileMap = new Map();
+      if (profiles) {
+        profiles.forEach(profile => {
+          profileMap.set(profile.id, profile);
+        });
+      }
+      console.log('🗺️ Profile map:', profileMap);
       
-      const projectsWithProfiles = projects.map(project => ({
-        ...project,
-        profiles: profileMap.get(project.owner_id) || null
-      }));
+      // 5. Combinar proyectos con profiles
+      const projectsWithProfiles = projects.map(project => {
+        const profile = profileMap.get(project.owner_id);
+        console.log(`🔗 Project "${project.name}" owner_id: ${project.owner_id}, found profile:`, profile);
+        
+        return {
+          ...project,
+          profiles: profile || null
+        };
+      });
 
-      console.log('Final projects with profiles:', projectsWithProfiles);
+      console.log('✅ Final projects with profiles:', projectsWithProfiles);
       set({ projects: projectsWithProfiles });
+      
     } catch (error) {
-      console.error('Error in fetchProjects:', error);
+      console.error('💥 Error in fetchProjects:', error);
       set({ projects: [] });
     } finally {
       set({ loading: false });

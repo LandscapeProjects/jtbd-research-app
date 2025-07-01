@@ -6,7 +6,7 @@ import type { Project } from '../../lib/database.types';
 interface ProjectCardProps {
   project: Project;
   stats?: {
-    interviews: r;
+    interviews: number;
     stories: number;
     progress: number;
   };
@@ -34,6 +34,25 @@ export function ProjectCard({ project, stats }: ProjectCardProps) {
     }
   };
 
+  // Debug log to see what we're getting
+  console.log('ProjectCard project data:', project);
+  console.log('Project profiles:', project.profiles);
+
+  // Get the creator name with fallback
+  const getCreatorName = () => {
+    if (project.profiles?.full_name) {
+      return project.profiles.full_name;
+    }
+    
+    // Fallback to email username if no full_name
+    if (project.profiles?.email) {
+      return project.profiles.email.split('@')[0];
+    }
+    
+    // Last resort fallback
+    return 'Usuario';
+  };
+
   return (
     <Link
       to={`/project/${project.id}`}
@@ -55,7 +74,7 @@ export function ProjectCard({ project, stats }: ProjectCardProps) {
         {/* Creator Info */}
         <div className="flex items-center space-x-2 mb-4 text-sm text-gray-600">
           <User className="h-4 w-4" />
-          <span>Creado por: {project.profiles?.full_name || 'Usuario'}</span>
+          <span>Creado por: {getCreatorName()}</span>
         </div>
 
         {stats && (
