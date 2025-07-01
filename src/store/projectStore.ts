@@ -83,22 +83,55 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const ownerIds = [...new Set(projects.map(p => p.owner_id))];
       console.log('👥 Owner IDs:', ownerIds);
       
-      // 3. Obtener profiles
-      const { data: profiles, error: profilesError } = await supabase
+      // 3. Obtener profiles CON DEBUG DETALLADO
+      console.log('🔍 Querying profiles for IDs:', ownerIds);
+      console.log('🔍 IDs details:', ownerIds.map(id => ({ 
+        id: id, 
+        type: typeof id, 
+        length: id.length,
+        first8: id.slice(0,8) 
+      })));
+
+      // Test query con debug completo
+      const { data: profiles, error: profilesError, count } = await supabase
         .from('profiles')
-        .select('id, full_name, email')
+        .select('id, full_name, email', { count: 'exact' })
         .in('id', ownerIds);
 
-      if (profilesError) {
-        console.error('❌ Error fetching profiles:', profilesError);
+      console.log('📊 Profiles query result:', { 
+        data: profiles, 
+        error: profilesError, 
+        count: count,
+        requested: ownerIds.length,
+        found: profiles?.length || 0 
+      });
+
+      // TEST individual para cada ID
+      console.log('🔍 Testing individual queries:');
+      const individualProfiles = [];
+
+      for (const id of ownerIds) {
+        const { data: singleProfile, error: singleError } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .eq('id', id)
+          .maybeSingle();
+        
+        console.log(`🔍 ID: ${id.slice(0,8)}... → Profile:`, singleProfile?.full_name || 'NOT FOUND', 'Error:', singleError);
+        
+        if (singleProfile) {
+          individualProfiles.push(singleProfile);
+        }
       }
 
-      console.log('👤 Profiles data:', profiles);
+      // Usar profiles individuales si .in() falla
+      const finalProfiles = profiles?.length === ownerIds.length ? profiles : individualProfiles;
+      console.log('👤 Final profiles to use:', finalProfiles);
 
       // 4. Crear mapa de profiles para búsqueda rápida
       const profileMap = new Map();
-      if (profiles) {
-        profiles.forEach(profile => {
+      if (finalProfiles) {
+        finalProfiles.forEach(profile => {
           profileMap.set(profile.id, profile);
         });
       }
