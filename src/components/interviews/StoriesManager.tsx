@@ -36,17 +36,37 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
   // Filter stories for this interview
   const interviewStories = stories.filter(s => s.interview_id === interviewId);
 
+  // FIXED: Stable useEffect with proper dependencies
   useEffect(() => {
-    fetchStories(projectId);
-    fetchForces(projectId);
-  }, [projectId, fetchStories, fetchForces]);
+    console.log('🔄 StoriesManager: Loading data for project:', projectId);
+    
+    // Use Promise.all to avoid race conditions
+    Promise.all([
+      fetchStories(projectId),
+      fetchForces(projectId)
+    ]).catch(error => {
+      console.error('Error loading stories data:', error);
+    });
+  }, [projectId]); // FIXED: Only depend on projectId, not the functions
 
   const handleCreateStory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newStoryData.title.trim()) return;
+    console.log('📝 Creating story with data:', newStoryData);
+    
+    if (!newStoryData.title.trim()) {
+      console.log('❌ Story title is required');
+      return;
+    }
+
+    // FIXED: Prevent multiple submissions
+    if (saving) {
+      console.log('⚠️ Already saving story, ignoring duplicate submission');
+      return;
+    }
 
     setSaving(true);
     try {
+      console.log('🚀 Creating story...');
       await createStory({
         interview_id: interviewId,
         title: newStoryData.title,
@@ -55,6 +75,9 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
         situation_b: newStoryData.situation_b,
       });
 
+      console.log('✅ Story created successfully');
+
+      // Reset form
       setNewStoryData({
         title: '',
         description: '',
@@ -63,7 +86,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
       });
       setIsAddingStory(false);
     } catch (error) {
-      console.error('Error creating story:', error);
+      console.error('💥 Error creating story:', error);
     } finally {
       setSaving(false);
     }
@@ -73,9 +96,18 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     e.preventDefault();
     if (!editingStory) return;
 
+    // FIXED: Prevent multiple submissions
+    if (saving) {
+      console.log('⚠️ Already saving story update, ignoring duplicate submission');
+      return;
+    }
+
     setSaving(true);
     try {
+      console.log('🔄 Updating story:', editingStory.id);
       await updateStory(editingStory.id, newStoryData);
+      console.log('✅ Story updated successfully');
+      
       setEditingStory(null);
       setNewStoryData({
         title: '',
@@ -83,14 +115,16 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
         situation_a: '',
         situation_b: '',
       });
+      setIsAddingStory(false);
     } catch (error) {
-      console.error('Error updating story:', error);
+      console.error('💥 Error updating story:', error);
     } finally {
       setSaving(false);
     }
   };
 
   const handleEditStory = (story: Story) => {
+    console.log('✏️ Editing story:', story.title);
     setEditingStory(story);
     setNewStoryData({
       title: story.title,
@@ -102,6 +136,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
   };
 
   const handleCancelEdit = () => {
+    console.log('❌ Cancelling story edit');
     setEditingStory(null);
     setIsAddingStory(false);
     setNewStoryData({
@@ -112,16 +147,46 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     });
   };
 
+  const handleAddStoryClick = () => {
+    console.log('➕ Add story button clicked');
+    setEditingStory(null);
+    setNewStoryData({
+      title: '',
+      description: '',
+      situation_a: '',
+      situation_b: '',
+    });
+    setIsAddingStory(true);
+  };
+
   const handleAddForce = async (storyId: string, type: ForceType, description: string) => {
-    await createForce(storyId, type, description);
+    console.log('🔥 Adding force:', { storyId: storyId.slice(0, 8) + '...', type, description: description.slice(0, 30) + '...' });
+    try {
+      await createForce(storyId, type, description);
+      console.log('✅ Force added successfully');
+    } catch (error) {
+      console.error('💥 Error adding force:', error);
+    }
   };
 
   const handleUpdateForce = async (forceId: string, description: string) => {
-    await updateForce(forceId, { description });
+    console.log('🔄 Updating force:', forceId.slice(0, 8) + '...');
+    try {
+      await updateForce(forceId, { description });
+      console.log('✅ Force updated successfully');
+    } catch (error) {
+      console.error('💥 Error updating force:', error);
+    }
   };
 
   const handleDeleteForce = async (forceId: string) => {
-    await deleteForce(forceId);
+    console.log('🗑️ Deleting force:', forceId.slice(0, 8) + '...');
+    try {
+      await deleteForce(forceId);
+      console.log('✅ Force deleted successfully');
+    } catch (error) {
+      console.error('💥 Error deleting force:', error);
+    }
   };
 
   const getStoryForces = (storyId: string, type: ForceType) => {
@@ -165,14 +230,24 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
             {interviewStories.length} {interviewStories.length === 1 ? 'story' : 'stories'}
           </span>
           <button
-            onClick={() => setIsAddingStory(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center text-sm"
+            onClick={handleAddStoryClick}
+            disabled={saving}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center text-sm disabled:opacity-50"
           >
             <Plus className="h-4 w-4 mr-2" />
             Add Story
           </button>
         </div>
       </div>
+
+      {/* Debug Info - Only in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+          <strong>Stories Debug:</strong> Adding: {isAddingStory ? 'YES' : 'NO'} | 
+          Editing: {editingStory?.title || 'None'} | 
+          Stories: {interviewStories.length} | Saving: {saving ? 'YES' : 'NO'}
+        </div>
+      )}
 
       {/* Quick Stats */}
       {interviewStories.length > 0 && (
@@ -220,7 +295,8 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
             </h4>
             <button
               onClick={handleCancelEdit}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+              disabled={saving}
+              className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
             >
               <X className="h-5 w-5" />
             </button>
@@ -236,7 +312,8 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                 required
                 value={newStoryData.title}
                 onChange={(e) => setNewStoryData({ ...newStoryData, title: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                disabled={saving}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                 placeholder="e.g., Switching from Netflix to Disney+"
               />
             </div>
@@ -250,7 +327,8 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                 required
                 value={newStoryData.description}
                 onChange={(e) => setNewStoryData({ ...newStoryData, description: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                disabled={saving}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                 placeholder="Brief description of the story context and decision..."
               />
             </div>
@@ -265,7 +343,8 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                   required
                   value={newStoryData.situation_a}
                   onChange={(e) => setNewStoryData({ ...newStoryData, situation_a: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={saving}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                   placeholder="Describe their current situation..."
                 />
               </div>
@@ -279,7 +358,8 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                   required
                   value={newStoryData.situation_b}
                   onChange={(e) => setNewStoryData({ ...newStoryData, situation_b: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={saving}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                   placeholder="Describe their desired outcome..."
                 />
               </div>
@@ -289,13 +369,14 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
               <button
                 type="button"
                 onClick={handleCancelEdit}
-                className="px-4 py-2 text-gray-700 hover:text-gray-900 transition-colors"
+                disabled={saving}
+                className="px-4 py-2 text-gray-700 hover:text-gray-900 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || !newStoryData.title.trim()}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 transition-colors flex items-center"
               >
                 {saving ? (
@@ -303,7 +384,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                 ) : (
                   <Save className="h-4 w-4 mr-2" />
                 )}
-                {editingStory ? 'Update Story' : 'Create Story'}
+                {saving ? 'Saving...' : (editingStory ? 'Update Story' : 'Create Story')}
               </button>
             </div>
           </form>
@@ -367,7 +448,8 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                     </div>
                     <button
                       onClick={() => handleEditStory(story)}
-                      className="flex items-center space-x-1 text-blue-600 hover:text-blue-700 text-sm font-medium transition-colors ml-4"
+                      disabled={saving}
+                      className="flex items-center space-x-1 text-blue-600 hover:text-blue-700 text-sm font-medium transition-colors ml-4 disabled:opacity-50"
                     >
                       <Edit3 className="h-4 w-4" />
                       <span>Edit</span>
@@ -432,8 +514,9 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
           </p>
           <div className="mt-6">
             <button
-              onClick={() => setIsAddingStory(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center mx-auto"
+              onClick={handleAddStoryClick}
+              disabled={saving}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center mx-auto disabled:opacity-50"
             >
               <Plus className="h-4 w-4 mr-2" />
               Add First Story
