@@ -61,7 +61,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     // Race condition guard
     const { isFetching } = get();
     if (isFetching) {
-      console.log('fetchProjects already in progress, skipping...');
+      console.log('⚠️ fetchProjects already in progress, skipping...');
       return;
     }
 
@@ -154,41 +154,145 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createProject: async (name: string, description?: string) => {
-    // Get the current authenticated user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-    if (userError || !user) {
-      throw new Error('User not authenticated');
-    }
+    console.log('🚀 Starting createProject...');
+    console.log('📝 Project data:', { name, description });
 
-    const { data, error } = await supabase
-      .from('projects')
-      .insert({ 
-        name, 
-        description,
+    try {
+      // STEP 1: Get authenticated user with multiple methods
+      console.log('🔍 Step 1: Getting authenticated user...');
+      
+      // Method 1: Get current session
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      console.log('📋 Session result:', { 
+        hasSession: !!sessionData.session,
+        hasUser: !!sessionData.session?.user,
+        userId: sessionData.session?.user?.id?.slice(0, 8) + '...',
+        error: sessionError?.message || 'none'
+      });
+
+      // Method 2: Get current user (fallback)
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      console.log('👤 User result:', { 
+        hasUser: !!userData.user,
+        userId: userData.user?.id?.slice(0, 8) + '...',
+        email: userData.user?.email,
+        error: userError?.message || 'none'
+      });
+
+      // Determine which user ID to use
+      const user = sessionData.session?.user || userData.user;
+      
+      if (!user) {
+        console.error('❌ No authenticated user found');
+        console.log('🔍 Session data:', sessionData);
+        console.log('🔍 User data:', userData);
+        throw new Error('User not authenticated - please log in again');
+      }
+
+      console.log('✅ Authenticated user found:', {
+        id: user.id,
+        email: user.email,
+        created_at: user.created_at
+      });
+
+      // STEP 2: Verify user exists in profiles table
+      console.log('🔍 Step 2: Verifying user profile exists...');
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .eq('id', user.id)
+        .single();
+
+      console.log('👤 Profile verification:', {
+        found: !!profile,
+        profileId: profile?.id?.slice(0, 8) + '...',
+        fullName: profile?.full_name,
+        error: profileError?.message || 'none'
+      });
+
+      if (profileError && profileError.code !== 'PGRST116') {
+        console.error('❌ Profile query error:', profileError);
+        throw new Error(`Profile verification failed: ${profileError.message}`);
+      }
+
+      // STEP 3: Create project with explicit user ID
+      console.log('🔍 Step 3: Creating project in database...');
+      console.log('📝 Insert data:', {
+        name,
+        description: description || '',
         owner_id: user.id
-      })
-      .select()
-      .single();
+      });
 
-    if (error) throw error;
-    
-    // Get the profile for the new project
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, full_name, email')
-      .eq('id', user.id)
-      .single();
+      const { data: newProject, error: insertError } = await supabase
+        .from('projects')
+        .insert({ 
+          name, 
+          description: description || '',
+          owner_id: user.id
+        })
+        .select('id, name, description, owner_id, status, created_at')
+        .single();
 
-    const projectWithProfile = {
-      ...data,
-      profiles: profile || null
-    };
-    
-    const { projects } = get();
-    set({ projects: [projectWithProfile, ...projects] });
-    
-    return projectWithProfile;
+      console.log('📊 Insert result:', {
+        success: !!newProject,
+        projectId: newProject?.id?.slice(0, 8) + '...',
+        ownerId: newProject?.owner_id?.slice(0, 8) + '...',
+        error: insertError?.message || 'none'
+      });
+
+      if (insertError) {
+        console.error('❌ Project creation failed:', insertError);
+        console.log('🔍 Full error details:', {
+          code: insertError.code,
+          message: insertError.message,
+          details: insertError.details,
+          hint: insertError.hint
+        });
+        throw new Error(`Failed to create project: ${insertError.message}`);
+      }
+
+      if (!newProject) {
+        console.error('❌ No project returned from insert');
+        throw new Error('Project creation failed - no data returned');
+      }
+
+      // STEP 4: Add profile to project and update store
+      console.log('🔍 Step 4: Adding profile to project...');
+      const projectWithProfile = {
+        ...newProject,
+        profiles: profile || null
+      };
+
+      console.log('✅ Project created successfully:', {
+        id: projectWithProfile.id,
+        name: projectWithProfile.name,
+        owner: projectWithProfile.profiles?.full_name || 'No profile'
+      });
+      
+      // Update store with new project
+      const { projects } = get();
+      set({ projects: [projectWithProfile, ...projects] });
+      
+      console.log('🎉 createProject completed successfully');
+      return projectWithProfile;
+
+    } catch (error: any) {
+      console.error('💥 createProject failed:', error);
+      console.log('🔍 Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack?.split('\n')[0]
+      });
+      
+      // Re-throw with user-friendly message
+      if (error.message.includes('not authenticated')) {
+        throw new Error('Please log in again to create a project');
+      } else if (error.message.includes('RLS')) {
+        throw new Error('Permission denied - please check your account access');
+      } else {
+        throw new Error(`Failed to create project: ${error.message}`);
+      }
+    }
   },
 
   setCurrentProject: (project: Project) => {
