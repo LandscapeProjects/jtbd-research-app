@@ -1,12 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Plus, Users, Calendar, User } from 'lucide-react';
+import { Plus, Users, Calendar, User, CheckCircle, AlertTriangle, BookOpen, ArrowDown } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
+import { StoriesManager } from '../components/interviews/StoriesManager';
 import { useProjectStore } from '../store/projectStore';
+import type { Interview } from '../lib/database.types';
 
 export function Interviews() {
   const { projectId } = useParams<{ projectId: string }>();
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [currentInterview, setCurrentInterview] = useState<Interview | null>(null);
+  const [selectedInterviewId, setSelectedInterviewId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     participant_name: '',
     participant_age: '',
@@ -15,10 +19,16 @@ export function Interviews() {
     context: '',
   });
 
+  const storiesSectionRef = useRef<HTMLDivElement>(null);
+
   const { 
     currentProject, 
     interviews, 
+    stories,
+    forces,
     fetchInterviews, 
+    fetchStories,
+    fetchForces,
     createInterview,
     loading 
   } = useProjectStore();
@@ -26,15 +36,17 @@ export function Interviews() {
   useEffect(() => {
     if (projectId) {
       fetchInterviews(projectId);
+      fetchStories(projectId);
+      fetchForces(projectId);
     }
-  }, [projectId, fetchInterviews]);
+  }, [projectId, fetchInterviews, fetchStories, fetchForces]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!projectId) return;
 
     try {
-      await createInterview({
+      const interview = await createInterview({
         project_id: projectId,
         participant_name: formData.participant_name,
         participant_age: formData.participant_age ? parseInt(formData.participant_age) : null,
@@ -43,6 +55,11 @@ export function Interviews() {
         context: formData.context,
       });
 
+      // Set as current interview and scroll to stories section
+      setCurrentInterview(interview);
+      setIsFormOpen(false);
+      
+      // Reset form
       setFormData({
         participant_name: '',
         participant_age: '',
@@ -50,35 +67,135 @@ export function Interviews() {
         interview_date: new Date().toISOString().split('T')[0],
         context: '',
       });
-      setIsFormOpen(false);
+
+      // Scroll to stories section after a brief delay
+      setTimeout(() => {
+        storiesSectionRef.current?.scrollIntoView({ 
+          behavior: 'smooth',
+          block: 'start'
+        });
+      }, 100);
+
     } catch (error) {
       console.error('Error creating interview:', error);
     }
   };
 
+  const handleSelectExistingInterview = (interview: Interview) => {
+    setCurrentInterview(interview);
+    setSelectedInterviewId(interview.id);
+    
+    // Scroll to stories section
+    setTimeout(() => {
+      storiesSectionRef.current?.scrollIntoView({ 
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }, 100);
+  };
+
+  const getInterviewStats = (interviewId: string) => {
+    const interviewStories = stories.filter(s => s.interview_id === interviewId);
+    const storyIds = interviewStories.map(s => s.id);
+    const interviewForces = forces.filter(f => storyIds.includes(f.story_id));
+    
+    const completeStories = interviewStories.filter(story => {
+      const pushes = forces.filter(f => f.story_id === story.id && f.type === 'push');
+      const pulls = forces.filter(f => f.story_id === story.id && f.type === 'pull');
+      return pushes.length > 0 && pulls.length > 0;
+    });
+
+    return {
+      storyCount: interviewStories.length,
+      forceCount: interviewForces.length,
+      completeStories: completeStories.length,
+      isComplete: interviewStories.length > 0 && completeStories.length === interviewStories.length,
+      hasStories: interviewStories.length > 0
+    };
+  };
+
+  const resetForm = () => {
+    setIsFormOpen(false);
+    setCurrentInterview(null);
+    setSelectedInterviewId(null);
+    setFormData({
+      participant_name: '',
+      participant_age: '',
+      participant_gender: '',
+      interview_date: new Date().toISOString().split('T')[0],
+      context: '',
+    });
+  };
+
   return (
     <Layout projectId={projectId}>
-      <div className="p-6">
+      <div className="p-6 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Interviews</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Interview Documentation</h1>
             <p className="text-gray-600 mt-1">
-              Manage participant interviews for {currentProject?.name}
+              Create interviews and capture participant stories in one integrated workflow
             </p>
           </div>
           <button
             onClick={() => setIsFormOpen(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center"
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center shadow-sm"
           >
             <Plus className="h-4 w-4 mr-2" />
             New Interview
           </button>
         </div>
 
-        {/* Create Interview Form */}
+        {/* Project Overview Stats */}
+        {interviews.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center">
+                <Users className="h-8 w-8 text-blue-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-500">Total Interviews</p>
+                  <p className="text-2xl font-semibold text-gray-900">{interviews.length}</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center">
+                <BookOpen className="h-8 w-8 text-green-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-500">Total Stories</p>
+                  <p className="text-2xl font-semibold text-gray-900">{stories.length}</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center">
+                <CheckCircle className="h-8 w-8 text-purple-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-500">Complete Interviews</p>
+                  <p className="text-2xl font-semibold text-gray-900">
+                    {interviews.filter(i => getInterviewStats(i.id).isComplete).length}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center">
+                <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <span className="text-orange-600 font-bold text-sm">F</span>
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-gray-500">Total Forces</p>
+                  <p className="text-2xl font-semibold text-gray-900">{forces.length}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 1: Interview Creation Form */}
         {isFormOpen && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Add New Interview</h2>
+          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 mb-8">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">📋 Create New Interview</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -91,7 +208,7 @@ export function Interviews() {
                     value={formData.participant_name}
                     onChange={(e) => setFormData({ ...formData, participant_name: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., María González"
+                    placeholder="e.g., Ana Martinez"
                   />
                 </div>
 
@@ -106,7 +223,7 @@ export function Interviews() {
                     value={formData.participant_age}
                     onChange={(e) => setFormData({ ...formData, participant_age: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., 34"
+                    placeholder="e.g., 29"
                   />
                 </div>
 
@@ -153,74 +270,159 @@ export function Interviews() {
                 />
               </div>
 
-              <div className="flex items-center justify-end space-x-3">
+              <div className="flex items-center justify-end space-x-3 pt-4 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setIsFormOpen(false)}
+                  onClick={resetForm}
                   className="px-4 py-2 text-gray-700 hover:text-gray-900 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center"
                 >
-                  Add Interview
+                  <Users className="h-4 w-4 mr-2" />
+                  Create Interview
                 </button>
               </div>
             </form>
           </div>
         )}
 
-        {/* Interviews List */}
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        {/* Success Message */}
+        {currentInterview && !selectedInterviewId && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-6 mb-8">
+            <div className="flex items-center space-x-3">
+              <CheckCircle className="h-6 w-6 text-green-600" />
+              <div>
+                <h3 className="text-lg font-semibold text-green-900">
+                  ✅ Interview Created Successfully!
+                </h3>
+                <p className="text-green-700">
+                  Interview with {currentInterview.participant_name} has been created. 
+                  Now add their decision-making stories below.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center text-green-700">
+              <ArrowDown className="h-4 w-4 mr-2 animate-bounce" />
+              <span className="text-sm font-medium">Scroll down to add stories</span>
+            </div>
           </div>
-        ) : interviews.length > 0 ? (
-          <div className="space-y-4">
-            {interviews.map((interview) => (
-              <div
-                key={interview.id}
-                className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-4">
-                    <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <User className="h-6 w-6 text-blue-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-medium text-gray-900">
-                        {interview.participant_name}
-                      </h3>
-                      <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
-                        {interview.participant_age && (
-                          <span>{interview.participant_age} years old</span>
-                        )}
-                        {interview.participant_gender && (
-                          <span>{interview.participant_gender}</span>
-                        )}
-                        <div className="flex items-center">
-                          <Calendar className="h-4 w-4 mr-1" />
-                          {new Date(interview.interview_date).toLocaleDateString()}
+        )}
+
+        {/* Existing Interviews List */}
+        {!isFormOpen && !currentInterview && interviews.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Existing Interviews</h2>
+            <div className="space-y-4">
+              {interviews.map((interview) => {
+                const stats = getInterviewStats(interview.id);
+                
+                return (
+                  <div
+                    key={interview.id}
+                    className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow cursor-pointer"
+                    onClick={() => handleSelectExistingInterview(interview)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start space-x-4">
+                        <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                          <User className="h-6 w-6 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3 mb-2">
+                            <h3 className="text-lg font-medium text-gray-900">
+                              {interview.participant_name}
+                            </h3>
+                            <div className="flex items-center space-x-2">
+                              {stats.isComplete ? (
+                                <div className="flex items-center space-x-1 px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                                  <CheckCircle className="h-3 w-3" />
+                                  <span>Complete</span>
+                                </div>
+                              ) : stats.hasStories ? (
+                                <div className="flex items-center space-x-1 px-2 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-medium">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  <span>In Progress</span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center space-x-1 px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs font-medium">
+                                  <BookOpen className="h-3 w-3" />
+                                  <span>Needs Stories</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-4 text-sm text-gray-600 mb-2">
+                            {interview.participant_age && (
+                              <span>{interview.participant_age} years old</span>
+                            )}
+                            {interview.participant_gender && (
+                              <span>{interview.participant_gender}</span>
+                            )}
+                            <div className="flex items-center">
+                              <Calendar className="h-4 w-4 mr-1" />
+                              {new Date(interview.interview_date).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-4 text-sm text-gray-600 mb-2">
+                            <span>{stats.storyCount} stories</span>
+                            <span>{stats.forceCount} forces</span>
+                            <span>{stats.completeStories} complete</span>
+                          </div>
+                          {interview.context && (
+                            <p className="text-gray-700 text-sm">{interview.context}</p>
+                          )}
                         </div>
                       </div>
-                      {interview.context && (
-                        <p className="text-gray-700 mt-2">{interview.context}</p>
-                      )}
+                      <div className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+                        Click to add stories →
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            ))}
+                );
+              })}
+            </div>
           </div>
-        ) : (
+        )}
+
+        {/* Step 2: Stories Section */}
+        {currentInterview && (
+          <div ref={storiesSectionRef} className="scroll-mt-6">
+            <StoriesManager
+              interviewId={currentInterview.id}
+              participantName={currentInterview.participant_name}
+              projectId={projectId!}
+            />
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && interviews.length === 0 && !isFormOpen && (
           <div className="text-center py-12">
             <Users className="mx-auto h-12 w-12 text-gray-400" />
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No interviews yet</h3>
+            <h3 className="mt-2 text-lg font-medium text-gray-900">No interviews yet</h3>
             <p className="mt-1 text-sm text-gray-500">
-              Start by adding your first participant interview.
+              Start your research by creating your first participant interview.
             </p>
+            <div className="mt-6">
+              <button
+                onClick={() => setIsFormOpen(true)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center mx-auto"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create Your First Interview
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           </div>
         )}
       </div>

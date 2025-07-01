@@ -3,7 +3,6 @@ import { useLocation, Link } from 'react-router-dom';
 import { 
   Home, 
   Users, 
-  BookOpen, 
   Layers, 
   Grid3X3, 
   BarChart3,
@@ -17,6 +16,7 @@ interface NavigationItem {
   icon: React.ComponentType<{ className?: string }>;
   phase?: number;
   disabled?: boolean;
+  description?: string;
 }
 
 interface NavigationProps {
@@ -31,12 +31,40 @@ export function Navigation({ projectId }: NavigationProps) {
   ];
 
   const projectNavigation: NavigationItem[] = projectId ? [
-    { name: 'Overview', href: `/project/${projectId}`, icon: BookOpen },
-    { name: 'Interviews', href: `/project/${projectId}/interviews`, icon: Users, phase: 1 },
-    { name: 'Stories', href: `/project/${projectId}/stories`, icon: BookOpen, phase: 1 },
-    { name: 'Force Grouping', href: `/project/${projectId}/grouping`, icon: Layers, phase: 2 },
-    { name: 'Matrix Validation', href: `/project/${projectId}/matrix`, icon: Grid3X3, phase: 3 },
-    { name: 'Results', href: `/project/${projectId}/results`, icon: BarChart3, phase: 4 },
+    { 
+      name: 'Overview', 
+      href: `/project/${projectId}`, 
+      icon: Home,
+      description: 'Project summary and workflow'
+    },
+    { 
+      name: 'Interviews & Stories', 
+      href: `/project/${projectId}/interviews`, 
+      icon: Users, 
+      phase: 1,
+      description: 'Integrated interview and story capture'
+    },
+    { 
+      name: 'Force Grouping', 
+      href: `/project/${projectId}/grouping`, 
+      icon: Layers, 
+      phase: 2,
+      description: 'Group similar forces thematically'
+    },
+    { 
+      name: 'Matrix Validation', 
+      href: `/project/${projectId}/matrix`, 
+      icon: Grid3X3, 
+      phase: 3,
+      description: 'Validate story-group relationships'
+    },
+    { 
+      name: 'Results', 
+      href: `/project/${projectId}/results`, 
+      icon: BarChart3, 
+      phase: 4,
+      description: 'Analysis and insights'
+    },
   ] : [];
 
   const isActive = (href: string) => {
@@ -63,6 +91,7 @@ export function Navigation({ projectId }: NavigationProps) {
                 : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900',
               item.disabled && 'opacity-50 cursor-not-allowed'
             )}
+            title={item.description}
           >
             <Icon className="mr-3 h-4 w-4 flex-shrink-0" />
             <span className="flex-1">{item.name}</span>
@@ -84,7 +113,7 @@ export function Navigation({ projectId }: NavigationProps) {
           <div className="flex-1 px-3 space-y-6">
             <NavigationSection items={mainNavigation} />
             {projectNavigation.length > 0 && (
-              <NavigationSection items={projectNavigation} title="Project" />
+              <NavigationSection items={projectNavigation} title="Research Workflow" />
             )}
           </div>
         </div>
