@@ -28,23 +28,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signUp: async (email: string, password: string, fullName: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          full_name: fullName,
+        }
+      }
     });
     
     if (error) throw error;
 
-    // Create profile
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .insert({
-        id: (await supabase.auth.getUser()).data.user!.id,
-        email,
-        full_name: fullName,
-      });
+    // The trigger will automatically create the profile
+    // But let's ensure it exists with a manual check
+    if (data.user) {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({
+          id: data.user.id,
+          email,
+          full_name: fullName,
+        }, {
+          onConflict: 'id'
+        });
 
-    if (profileError) throw profileError;
+      if (profileError) {
+        console.error('Profile creation error:', profileError);
+      }
+    }
   },
 
   signOut: async () => {
@@ -59,11 +71,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const { data: { user } } = await supabase.auth.getUser();
       
       if (user) {
-        const { data: profile } = await supabase
+        // Try to get profile, create if missing
+        let { data: profile, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
           .single();
+
+        // If profile doesn't exist, create it
+        if (error && error.code === 'PGRST116') {
+          const { data: newProfile, error: createError } = await supabase
+            .from('profiles')
+            .insert({
+              id: user.id,
+              email: user.email || '',
+              full_name: user.user_metadata?.full_name || 
+                        user.user_metadata?.name || 
+                        user.email?.split('@')[0] || 'User',
+            })
+            .select()
+            .single();
+
+          if (createError) {
+            console.error('Error creating profile:', createError);
+          } else {
+            profile = newProfile;
+          }
+        }
 
         set({ user, profile });
       }
@@ -76,11 +110,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Listen for auth changes
     supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
-        const { data: profile } = await supabase
+        // Get or create profile
+        let { data: profile, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', session.user.id)
           .single();
+
+        // If profile doesn't exist, create it
+        if (error && error.code === 'PGRST116') {
+          const { data: newProfile, error: createError } = await supabase
+            .from('profiles')
+            .insert({
+              id: session.user.id,
+              email: session.user.email || '',
+              full_name: session.user.user_metadata?.full_name || 
+                        session.user.user_metadata?.name || 
+                        session.user.email?.split('@')[0] || 'User',
+            })
+            .select()
+            .single();
+
+          if (createError) {
+            console.error('Error creating profile:', createError);
+          } else {
+            profile = newProfile;
+          }
+        }
 
         set({ user: session.user, profile });
       } else {
