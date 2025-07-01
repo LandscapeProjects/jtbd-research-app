@@ -61,30 +61,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOut: async () => {
     try {
-      console.log('🚪 Starting sign out process...');
+      console.log('🚪 Starting clean logout...');
       
-      // 1. Sign out from Supabase
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('Supabase signOut error:', error);
-        throw error;
-      }
-      
-      // 2. Clear local state immediately
+      // 1. Clear local state immediately to prevent auth guards from triggering
       set({ 
         user: null, 
         profile: null, 
         loading: false 
       });
       
-      console.log('✅ Sign out completed successfully');
+      // 2. Sign out from Supabase (don't await to prevent delays)
+      supabase.auth.signOut().catch(error => {
+        console.error('Supabase signOut error (non-blocking):', error);
+      });
       
-      // 3. Force redirect to login (using window.location for complete refresh)
+      // 3. Clear any cached data
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // 4. Single clean redirect to root (which will show login)
       window.location.href = '/';
       
     } catch (error) {
-      console.error('💥 Sign out failed:', error);
-      // Even if there's an error, clear local state and redirect
+      console.error('Logout error:', error);
+      // Force clean redirect even on error
       set({ user: null, profile: null, loading: false });
       window.location.href = '/';
     }
@@ -133,7 +133,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // Listen for auth changes
     supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔄 Auth state change:', event, session?.user?.email);
+      console.log('🔄 Auth state change:', event);
       
       if (event === 'SIGNED_OUT' || !session?.user) {
         console.log('🚪 User signed out, clearing state');

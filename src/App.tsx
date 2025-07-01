@@ -13,9 +13,9 @@ import { MatrixValidation } from './pages/MatrixValidation';
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuthStore();
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
+    // Only redirect if we're sure there's no user and not loading
     if (!loading && !user) {
       console.log('🔒 User not authenticated, redirecting to login');
       navigate('/', { replace: true });
