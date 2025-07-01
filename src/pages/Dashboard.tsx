@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, BarChart3, Users, BookOpen } from 'lucide-react';
+import { Plus, Search, BarChart3, Users, BookOpen, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { ProjectCard } from '../components/projects/ProjectCard';
@@ -11,6 +11,7 @@ export function Dashboard() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string>('');
   
   const { projects, loading, fetchProjects } = useProjectStore();
 
@@ -19,10 +20,13 @@ export function Dashboard() {
     const loadProjects = async () => {
       try {
         setError(null);
+        setDebugInfo('Loading projects...');
         await fetchProjects();
+        setDebugInfo('Projects loaded successfully');
       } catch (err: any) {
         console.error('Dashboard failed to load projects:', err);
         setError(err.message || 'Failed to load projects');
+        setDebugInfo(`Error: ${err.message}`);
       }
     };
     
@@ -38,6 +42,20 @@ export function Dashboard() {
     navigate(`/project/${projectId}`);
   };
 
+  const handleManualRefresh = async () => {
+    console.log('🔄 Manual fetchProjects triggered...');
+    setDebugInfo('Manual refresh started...');
+    try {
+      await fetchProjects();
+      setDebugInfo('Manual refresh completed');
+      setError(null);
+    } catch (err: any) {
+      console.error('Manual refresh failed:', err);
+      setError(err.message);
+      setDebugInfo(`Manual refresh failed: ${err.message}`);
+    }
+  };
+
   // Error boundary for failed project loading
   if (error) {
     return (
@@ -46,12 +64,21 @@ export function Dashboard() {
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md mx-auto">
             <h3 className="text-lg font-medium text-red-900 mb-2">Failed to Load Projects</h3>
             <p className="text-red-700 mb-4">{error}</p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Reload Page
-            </button>
+            <div className="space-y-2">
+              <button 
+                onClick={handleManualRefresh}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mr-2"
+              >
+                <RefreshCw className="h-4 w-4 inline mr-2" />
+                Try Again
+              </button>
+              <button 
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Reload Page
+              </button>
+            </div>
           </div>
         </div>
       </Layout>
@@ -76,6 +103,29 @@ export function Dashboard() {
               <Plus className="h-4 w-4 mr-2" />
               New Project
             </button>
+          </div>
+
+          {/* Debug Panel - Temporary for debugging */}
+          <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-yellow-800 mb-2">
+                  <strong>Debug Info:</strong> {debugInfo}
+                </p>
+                <p className="text-xs text-yellow-700">
+                  Loading: {loading ? 'TRUE' : 'FALSE'} | Projects: {projects.length} | 
+                  Check console for detailed logs (🔍 1-18)
+                </p>
+              </div>
+              <button 
+                onClick={handleManualRefresh}
+                disabled={loading}
+                className="px-3 py-1 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 disabled:opacity-50 flex items-center"
+              >
+                <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+                Force Refresh
+              </button>
+            </div>
           </div>
 
           {/* Quick Stats */}
@@ -137,7 +187,11 @@ export function Dashboard() {
         {/* Projects Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading projects...</p>
+              <p className="text-sm text-gray-500 mt-2">Check console for debug logs (🔍 1-18)</p>
+            </div>
           </div>
         ) : filteredProjects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
