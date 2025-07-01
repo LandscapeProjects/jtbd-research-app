@@ -6,7 +6,7 @@ import type { Project } from '../../lib/database.types';
 interface ProjectCardProps {
   project: Project;
   stats?: {
-    interviews: number;
+    interviews: r;
     stories: number;
     progress: number;
   };
