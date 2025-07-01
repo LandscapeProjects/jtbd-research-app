@@ -33,17 +33,24 @@ export function Interviews() {
     loading 
   } = useProjectStore();
 
+  // FIXED: Stable useEffect with proper dependencies
   useEffect(() => {
     if (projectId) {
-      fetchInterviews(projectId);
-      fetchStories(projectId);
-      fetchForces(projectId);
+      console.log('🔄 Loading interview data for project:', projectId);
+      
+      // Use Promise.all to avoid race conditions
+      Promise.all([
+        fetchInterviews(projectId),
+        fetchStories(projectId),
+        fetchForces(projectId)
+      ]).catch(error => {
+        console.error('Error loading interview data:', error);
+      });
     }
-  }, [projectId, fetchInterviews, fetchStories, fetchForces]);
+  }, [projectId]); // FIXED: Only depend on projectId, not the functions
 
   const handleNewInterviewClick = () => {
     console.log('🎯 New Interview button clicked');
-    console.log('📋 Current form state:', { isFormOpen, currentInterview });
     
     // Reset any existing state
     setCurrentInterview(null);
@@ -58,7 +65,7 @@ export function Interviews() {
     
     // Open the form
     setIsFormOpen(true);
-    console.log('✅ Form should now be open');
+    console.log('✅ Form opened');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -67,6 +74,12 @@ export function Interviews() {
     
     if (!projectId) {
       console.error('❌ No project ID available');
+      return;
+    }
+
+    // FIXED: Prevent multiple submissions
+    if (loading) {
+      console.log('⚠️ Already submitting, ignoring duplicate submission');
       return;
     }
 
@@ -157,14 +170,6 @@ export function Interviews() {
     });
   };
 
-  console.log('🔍 Interviews page render state:', {
-    projectId,
-    isFormOpen,
-    currentInterview: currentInterview?.participant_name || 'none',
-    interviewsCount: interviews.length,
-    loading
-  });
-
   return (
     <Layout projectId={projectId}>
       <div className="p-6 max-w-6xl mx-auto">
@@ -179,18 +184,19 @@ export function Interviews() {
             onClick={handleNewInterviewClick}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center shadow-sm"
             type="button"
+            disabled={loading}
           >
             <Plus className="h-4 w-4 mr-2" />
             New Interview
           </button>
         </div>
 
-        {/* Debug Info - Remove in production */}
+        {/* Debug Info - Only in development */}
         {process.env.NODE_ENV === 'development' && (
           <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm">
             <strong>Debug:</strong> Form Open: {isFormOpen ? 'YES' : 'NO'} | 
             Current Interview: {currentInterview?.participant_name || 'None'} | 
-            Interviews: {interviews.length}
+            Interviews: {interviews.length} | Loading: {loading ? 'YES' : 'NO'}
           </div>
         )}
 
@@ -266,6 +272,7 @@ export function Interviews() {
                     onChange={(e) => setFormData({ ...formData, participant_name: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="e.g., Ana Martinez"
+                    disabled={loading}
                   />
                 </div>
 
@@ -281,6 +288,7 @@ export function Interviews() {
                     onChange={(e) => setFormData({ ...formData, participant_age: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="e.g., 29"
+                    disabled={loading}
                   />
                 </div>
 
@@ -292,6 +300,7 @@ export function Interviews() {
                     value={formData.participant_gender}
                     onChange={(e) => setFormData({ ...formData, participant_gender: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={loading}
                   >
                     <option value="">Select gender</option>
                     <option value="Female">Female</option>
@@ -310,6 +319,7 @@ export function Interviews() {
                     value={formData.interview_date}
                     onChange={(e) => setFormData({ ...formData, interview_date: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -324,6 +334,7 @@ export function Interviews() {
                   onChange={(e) => setFormData({ ...formData, context: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Additional context about the interview setting, participant background, etc."
+                  disabled={loading}
                 />
               </div>
 
@@ -332,15 +343,17 @@ export function Interviews() {
                   type="button"
                   onClick={resetForm}
                   className="px-4 py-2 text-gray-700 hover:text-gray-900 transition-colors"
+                  disabled={loading}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center"
+                  disabled={loading}
                 >
                   <Users className="h-4 w-4 mr-2" />
-                  Create Interview
+                  {loading ? 'Creating...' : 'Create Interview'}
                 </button>
               </div>
             </form>
