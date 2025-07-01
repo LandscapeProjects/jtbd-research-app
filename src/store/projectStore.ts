@@ -11,6 +11,7 @@ interface ProjectState {
   forceGroups: ForceGroup[];
   matrixEntries: MatrixEntry[];
   loading: boolean;
+  isFetching: boolean; // NEW: Guard against concurrent calls
   
   // Project operations
   fetchProjects: () => Promise<void>;
@@ -53,89 +54,110 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   forceGroups: [],
   matrixEntries: [],
   loading: false,
+  isFetching: false, // NEW: Initially not fetching
 
-  // SIMPLIFIED VERSION of fetchProjects to fix hanging issue
+  // RACE CONDITION PROTECTED VERSION of fetchProjects
   fetchProjects: async () => {
-    console.log('🔍 1. Starting simplified fetchProjects...');
-    set({ loading: true });
+    // GUARD: Prevent concurrent calls
+    const { isFetching } = get();
+    if (isFetching) {
+      console.log('⚠️ fetchProjects already in progress, skipping...');
+      return;
+    }
+
+    console.log('🔍 1. Starting guarded fetchProjects...');
+    set({ loading: true, isFetching: true });
     
-    try {
-      console.log('🔍 2. Testing basic projects query...');
-      
-      // SIMPLIFIED QUERY - just essential fields with limit
-      const { data: projects, error: projectsError } = await supabase
-        .from('projects')
-        .select('id, name, description, owner_id, status, created_at')
-        .limit(50)
-        .order('created_at', { ascending: false });
+    // Timeout promise with state cleanup
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        console.log('⏱️ fetchProjects timeout - cleaning up...');
+        set({ loading: false, isFetching: false });
+        reject(new Error('fetchProjects timeout after 10 seconds'));
+      }, 10000);
+    });
 
-      console.log('🔍 3. Basic query result:', { 
-        success: !!projects,
-        count: projects?.length || 0,
-        error: projectsError?.message || 'none'
-      });
+    const fetchPromise = async () => {
+      try {
+        console.log('🔍 2. Testing basic projects query...');
+        
+        // SIMPLIFIED QUERY - just essential fields with limit
+        const { data: projects, error: projectsError } = await supabase
+          .from('projects')
+          .select('id, name, description, owner_id, status, created_at')
+          .limit(50)
+          .order('created_at', { ascending: false });
 
-      if (projectsError) {
-        console.error('❌ Projects query error:', projectsError);
-        throw new Error(`Projects query failed: ${projectsError.message}`);
-      }
+        console.log('🔍 3. Basic query result:', { 
+          success: !!projects,
+          count: projects?.length || 0,
+          error: projectsError?.message || 'none'
+        });
 
-      if (!projects || projects.length === 0) {
-        console.log('📭 4. No projects found, setting empty array');
-        set({ projects: [], loading: false });
-        return;
-      }
-
-      // Skip profiles query for now - use hardcoded fallback
-      console.log('🔍 4. Setting projects with hardcoded profiles...');
-      const projectsWithFallback = projects.map(project => ({
-        ...project,
-        profiles: {
-          id: project.owner_id,
-          full_name: project.owner_id === '61908872-7574-41a6-aadc-d5171b70c051' ? 'David' :
-                    project.owner_id === '1fad8220-918f-49b7-bc97-11570f4b6c9e' ? 'Pedro Rodriguez' :
-                    project.owner_id === '84451afe-546f-489d-80f0-1bfaa47242c3' ? 'Guillermo Sosa' : 'Usuario',
-          email: project.owner_id === '61908872-7574-41a6-aadc-d5171b70c051' ? 'david@example.com' :
-                 project.owner_id === '1fad8220-918f-49b7-bc97-11570f4b6c9e' ? 'pedro@avilatek.dev' :
-                 project.owner_id === '84451afe-546f-489d-80f0-1bfaa47242c3' ? 'guillermososa99@gmail.com' : 'user@example.com'
+        if (projectsError) {
+          console.error('❌ Projects query error:', projectsError);
+          throw new Error(`Projects query failed: ${projectsError.message}`);
         }
-      }));
 
-      console.log('✅ 5. Success - setting projects:', projectsWithFallback.length);
-      set({ projects: projectsWithFallback });
-      
-    } catch (error: any) {
-      console.error('💥 Error in fetchProjects:', error);
-      console.error('💥 Error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
-      
-      // EMERGENCY FALLBACK - static projects if query fails
-      console.log('🚨 Using emergency fallback projects...');
-      const fallbackProjects = [
-        {
-          id: 'fallback-1',
-          name: 'Emergency Fallback Project',
-          description: 'This is a fallback project while we fix the database issue',
-          owner_id: '61908872-7574-41a6-aadc-d5171b70c051',
-          status: 'active',
-          created_at: new Date().toISOString(),
+        if (!projects || projects.length === 0) {
+          console.log('📭 4. No projects found, setting empty array');
+          set({ projects: [] });
+          return;
+        }
+
+        // Skip profiles query for now - use hardcoded fallback
+        console.log('🔍 4. Setting projects with hardcoded profiles...');
+        const projectsWithFallback = projects.map(project => ({
+          ...project,
           profiles: {
-            id: '61908872-7574-41a6-aadc-d5171b70c051',
-            full_name: 'David',
-            email: 'david@example.com'
+            id: project.owner_id,
+            full_name: project.owner_id === '61908872-7574-41a6-aadc-d5171b70c051' ? 'David García' :
+                      project.owner_id === '1fad8220-918f-49b7-bc97-11570f4b6c9e' ? 'Pedro Rodriguez' :
+                      project.owner_id === '84451afe-546f-489d-80f0-1bfaa47242c3' ? 'Guillermo Sosa' : 'Usuario',
+            email: project.owner_id === '61908872-7574-41a6-aadc-d5171b70c051' ? 'david@example.com' :
+                   project.owner_id === '1fad8220-918f-49b7-bc97-11570f4b6c9e' ? 'pedro@avilatek.dev' :
+                   project.owner_id === '84451afe-546f-489d-80f0-1bfaa47242c3' ? 'guillermososa99@gmail.com' : 'user@example.com'
           }
-        }
-      ];
-      
-      set({ projects: fallbackProjects });
-      
+        }));
+
+        console.log('✅ 5. Success - setting projects:', projectsWithFallback.length);
+        set({ projects: projectsWithFallback });
+        
+      } catch (error: any) {
+        console.error('💥 Error in fetchProjects:', error);
+        
+        // EMERGENCY FALLBACK - static projects if query fails
+        console.log('🚨 Using emergency fallback projects...');
+        const fallbackProjects = [
+          {
+            id: 'fallback-1',
+            name: 'Emergency Fallback Project',
+            description: 'This is a fallback project while we fix the database issue',
+            owner_id: '61908872-7574-41a6-aadc-d5171b70c051',
+            status: 'active',
+            created_at: new Date().toISOString(),
+            profiles: {
+              id: '61908872-7574-41a6-aadc-d5171b70c051',
+              full_name: 'David García',
+              email: 'david@example.com'
+            }
+          }
+        ];
+        
+        set({ projects: fallbackProjects });
+        throw error; // Re-throw to be caught by Promise.race
+      }
+    };
+
+    try {
+      await Promise.race([fetchPromise(), timeoutPromise]);
+      console.log('✅ 6. fetchProjects completed successfully');
+    } catch (error: any) {
+      console.error('💥 fetchProjects failed/timed out:', error);
+      // Fallback is already set in fetchPromise catch block
     } finally {
-      console.log('🔍 6. Setting loading false');
-      set({ loading: false });
-      console.log('✅ 7. fetchProjects completed');
+      console.log('🔍 7. Cleanup - resetting flags');
+      set({ loading: false, isFetching: false });
     }
   },
 

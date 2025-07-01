@@ -13,14 +13,19 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
   
-  const { projects, loading, fetchProjects } = useProjectStore();
+  const { projects, loading, isFetching, fetchProjects } = useProjectStore();
 
-  // FIX: Remove fetchProjects from dependency array to prevent infinite loop
+  // FIX: Add debouncing and cleanup to prevent rapid successive calls
   useEffect(() => {
     const loadProjects = async () => {
       try {
         setError(null);
         setDebugInfo('Loading projects...');
+        console.log('📊 Dashboard requesting projects...');
+        
+        // Small delay to prevent rapid successive calls
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         await fetchProjects();
         setDebugInfo('Projects loaded successfully');
       } catch (err: any) {
@@ -31,7 +36,13 @@ export function Dashboard() {
     };
     
     loadProjects();
-  }, []); // Empty dependency array - only run once on mount
+
+    // Cleanup function when component unmounts
+    return () => {
+      console.log('📊 Dashboard unmounting - cleanup any pending operations');
+      // Note: We can't directly call set() here, but the isFetching guard will handle concurrent calls
+    };
+  }, []); // Keep empty dependency array to prevent infinite loop
 
   const filteredProjects = projects.filter(project =>
     project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -43,12 +54,17 @@ export function Dashboard() {
   };
 
   const handleManualRefresh = async () => {
-    console.log('🔄 Manual fetchProjects triggered...');
+    console.log('🔄 Manual refresh - force reset first...');
     setDebugInfo('Manual refresh started...');
+    
     try {
-      await fetchProjects();
-      setDebugInfo('Manual refresh completed');
-      setError(null);
+      // Wait a moment then try fresh call (the isFetching guard will handle any conflicts)
+      setTimeout(async () => {
+        console.log('🔄 Attempting fresh fetchProjects...');
+        await fetchProjects();
+        setDebugInfo('Manual refresh completed');
+        setError(null);
+      }, 500);
     } catch (err: any) {
       console.error('Manual refresh failed:', err);
       setError(err.message);
@@ -67,9 +83,10 @@ export function Dashboard() {
             <div className="space-y-2">
               <button 
                 onClick={handleManualRefresh}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mr-2"
+                disabled={loading || isFetching}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mr-2 disabled:opacity-50"
               >
-                <RefreshCw className="h-4 w-4 inline mr-2" />
+                <RefreshCw className={`h-4 w-4 inline mr-2 ${(loading || isFetching) ? 'animate-spin' : ''}`} />
                 Try Again
               </button>
               <button 
@@ -105,7 +122,7 @@ export function Dashboard() {
             </button>
           </div>
 
-          {/* Debug Panel - Temporary for debugging */}
+          {/* Debug Panel - Temporary for debugging race conditions */}
           <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
             <div className="flex items-center justify-between">
               <div>
@@ -113,17 +130,19 @@ export function Dashboard() {
                   <strong>Debug Info:</strong> {debugInfo}
                 </p>
                 <p className="text-xs text-yellow-700">
-                  Loading: {loading ? 'TRUE' : 'FALSE'} | Projects: {projects.length} | 
-                  Check console for detailed logs (🔍 1-18)
+                  Loading: {loading ? 'TRUE' : 'FALSE'} | 
+                  Fetching: {isFetching ? 'TRUE' : 'FALSE'} | 
+                  Projects: {projects.length} | 
+                  Check console for detailed logs (🔍 1-7)
                 </p>
               </div>
               <button 
                 onClick={handleManualRefresh}
-                disabled={loading}
+                disabled={loading || isFetching}
                 className="px-3 py-1 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 disabled:opacity-50 flex items-center"
               >
-                <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
-                Force Refresh
+                <RefreshCw className={`h-3 w-3 mr-1 ${(loading || isFetching) ? 'animate-spin' : ''}`} />
+                {(loading || isFetching) ? 'Loading...' : 'Force Refresh'}
               </button>
             </div>
           </div>
@@ -185,12 +204,14 @@ export function Dashboard() {
         </div>
 
         {/* Projects Grid */}
-        {loading ? (
+        {loading || isFetching ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading projects...</p>
-              <p className="text-sm text-gray-500 mt-2">Check console for debug logs (🔍 1-18)</p>
+              <p className="text-gray-600">
+                {isFetching ? 'Loading projects...' : 'Processing...'}
+              </p>
+              <p className="text-sm text-gray-500 mt-2">Check console for debug logs (🔍 1-7)</p>
             </div>
           </div>
         ) : filteredProjects.length > 0 ? (
