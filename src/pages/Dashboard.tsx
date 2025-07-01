@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, BarChart3, Users, BookOpen, RefreshCw, User } from 'lucide-react';
+import { Plus, Search, BarChart3, Users, BookOpen } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { ProjectCard } from '../components/projects/ProjectCard';
@@ -12,14 +12,13 @@ export function Dashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
   
-  const { projects, loading, isFetching, fetchProjects, refreshProfiles } = useProjectStore();
+  const { projects, loading, isFetching, fetchProjects } = useProjectStore();
 
-  // FIX: Add debouncing and cleanup to prevent rapid successive calls
   useEffect(() => {
     const loadProjects = async () => {
       try {
         setError(null);
-        console.log('📊 Dashboard requesting projects...');
+        console.log('Loading projects...');
         
         // Small delay to prevent rapid successive calls
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -35,7 +34,7 @@ export function Dashboard() {
 
     // Cleanup function when component unmounts
     return () => {
-      console.log('📊 Dashboard unmounting - cleanup any pending operations');
+      console.log('Dashboard unmounting - cleanup any pending operations');
     };
   }, []); // Keep empty dependency array to prevent infinite loop
 
@@ -48,30 +47,6 @@ export function Dashboard() {
     navigate(`/project/${projectId}`);
   };
 
-  const handleManualRefresh = async () => {
-    console.log('🔄 Manual pure dynamic refresh...');
-    try {
-      // Force reset any stuck states
-      setTimeout(async () => {
-        console.log('🔄 Attempting fresh fetchProjects...');
-        await fetchProjects();
-        setError(null);
-      }, 300);
-    } catch (err: any) {
-      console.error('Manual refresh failed:', err);
-      setError(err.message);
-    }
-  };
-
-  const handleRefreshProfiles = async () => {
-    console.log('👤 Refreshing profiles only...');
-    try {
-      await refreshProfiles();
-    } catch (err: any) {
-      console.error('Profile refresh failed:', err);
-    }
-  };
-
   // Error boundary for failed project loading
   if (error) {
     return (
@@ -82,16 +57,8 @@ export function Dashboard() {
             <p className="text-red-700 mb-4">{error}</p>
             <div className="space-y-2">
               <button 
-                onClick={handleManualRefresh}
-                disabled={loading || isFetching}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mr-2 disabled:opacity-50"
-              >
-                <RefreshCw className={`h-4 w-4 inline mr-2 ${(loading || isFetching) ? 'animate-spin' : ''}`} />
-                Try Again
-              </button>
-              <button 
                 onClick={() => window.location.reload()}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Reload Page
               </button>
@@ -120,49 +87,6 @@ export function Dashboard() {
               <Plus className="h-4 w-4 mr-2" />
               New Project
             </button>
-          </div>
-
-          {/* Pure Dynamic Data Status Panel */}
-          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded">
-            <div className="text-sm text-green-800 mb-2">
-              <p><strong>Pure Dynamic Data Status:</strong></p>
-              <p>Projects: {projects.length} | Loading: {loading ? 'YES' : 'NO'} | Fetching: {isFetching ? 'YES' : 'NO'}</p>
-              <p>
-                Profiles Found: {projects.filter(p => p.profiles?.full_name).length} | 
-                Missing: {projects.filter(p => !p.profiles?.full_name).length}
-              </p>
-              <p>Last Update: {new Date().toLocaleTimeString()}</p>
-            </div>
-            
-            <div className="space-x-2">
-              <button 
-                onClick={handleManualRefresh}
-                disabled={loading || isFetching}
-                className="px-3 py-1 bg-green-600 text-white rounded text-sm disabled:opacity-50 hover:bg-green-700"
-              >
-                <RefreshCw className={`h-3 w-3 inline mr-1 ${(loading || isFetching) ? 'animate-spin' : ''}`} />
-                {(loading || isFetching) ? 'Loading...' : '🔄 Refresh All'}
-              </button>
-              
-              <button 
-                onClick={handleRefreshProfiles}
-                disabled={loading || isFetching}
-                className="px-3 py-1 bg-blue-600 text-white rounded text-sm disabled:opacity-50 hover:bg-blue-700"
-              >
-                <User className="h-3 w-3 inline mr-1" />
-                👤 Refresh Profiles
-              </button>
-            </div>
-            
-            {/* Show missing profiles for debugging */}
-            {projects.some(p => !p.profiles?.full_name) && (
-              <div className="mt-2 text-xs text-red-600">
-                Missing profiles for: {projects
-                  .filter(p => !p.profiles?.full_name)
-                  .map(p => p.owner_id.slice(0,8))
-                  .join(', ')}...
-              </div>
-            )}
           </div>
 
           {/* Quick Stats */}
@@ -226,10 +150,7 @@ export function Dashboard() {
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">
-                {isFetching ? 'Loading pure dynamic data...' : 'Processing...'}
-              </p>
-              <p className="text-sm text-gray-500 mt-2">Check console for debug logs (🔍 1-12)</p>
+              <p className="text-gray-600">Loading projects...</p>
             </div>
           </div>
         ) : filteredProjects.length > 0 ? (
