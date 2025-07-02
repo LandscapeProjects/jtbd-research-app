@@ -14,6 +14,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
   const [isAddingStory, setIsAddingStory] = useState(false);
   const [editingStory, setEditingStory] = useState<Story | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [newStoryData, setNewStoryData] = useState({
     title: '',
     description: '',
@@ -53,8 +54,28 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     e.preventDefault();
     console.log('📝 Creating story with data:', newStoryData);
     
+    // Validate required fields
     if (!newStoryData.title.trim()) {
       console.log('❌ Story title is required');
+      setError('Story title is required');
+      return;
+    }
+
+    if (!newStoryData.description.trim()) {
+      console.log('❌ Story description is required');
+      setError('Story description is required');
+      return;
+    }
+
+    if (!newStoryData.situation_a.trim()) {
+      console.log('❌ Situation A is required');
+      setError('Situation A is required');
+      return;
+    }
+
+    if (!newStoryData.situation_b.trim()) {
+      console.log('❌ Situation B is required');
+      setError('Situation B is required');
       return;
     }
 
@@ -65,17 +86,25 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     }
 
     setSaving(true);
+    setError(null);
+    
     try {
       console.log('🚀 Creating story...');
-      await createStory({
+      
+      // FIXED: Ensure all required fields are provided with proper types
+      const storyData = {
         interview_id: interviewId,
-        title: newStoryData.title,
-        description: newStoryData.description,
-        situation_a: newStoryData.situation_a,
-        situation_b: newStoryData.situation_b,
-      });
+        title: newStoryData.title.trim(),
+        description: newStoryData.description.trim(),
+        situation_a: newStoryData.situation_a.trim(),
+        situation_b: newStoryData.situation_b.trim(),
+        // Don't include created_at/updated_at - let database handle defaults
+      };
 
-      console.log('✅ Story created successfully');
+      console.log('📋 Story data to insert:', storyData);
+
+      const newStory = await createStory(storyData);
+      console.log('✅ Story created successfully:', newStory);
 
       // Reset form
       setNewStoryData({
@@ -85,8 +114,11 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
         situation_b: '',
       });
       setIsAddingStory(false);
-    } catch (error) {
+      setError(null);
+      
+    } catch (error: any) {
       console.error('💥 Error creating story:', error);
+      setError(error.message || 'Failed to create story. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -103,9 +135,19 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     }
 
     setSaving(true);
+    setError(null);
+    
     try {
       console.log('🔄 Updating story:', editingStory.id);
-      await updateStory(editingStory.id, newStoryData);
+      
+      const updateData = {
+        title: newStoryData.title.trim(),
+        description: newStoryData.description.trim(),
+        situation_a: newStoryData.situation_a.trim(),
+        situation_b: newStoryData.situation_b.trim(),
+      };
+
+      await updateStory(editingStory.id, updateData);
       console.log('✅ Story updated successfully');
       
       setEditingStory(null);
@@ -116,8 +158,11 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
         situation_b: '',
       });
       setIsAddingStory(false);
-    } catch (error) {
+      setError(null);
+      
+    } catch (error: any) {
       console.error('💥 Error updating story:', error);
+      setError(error.message || 'Failed to update story. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -133,12 +178,14 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
       situation_b: story.situation_b,
     });
     setIsAddingStory(true);
+    setError(null);
   };
 
   const handleCancelEdit = () => {
     console.log('❌ Cancelling story edit');
     setEditingStory(null);
     setIsAddingStory(false);
+    setError(null);
     setNewStoryData({
       title: '',
       description: '',
@@ -150,6 +197,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
   const handleAddStoryClick = () => {
     console.log('➕ Add story button clicked');
     setEditingStory(null);
+    setError(null);
     setNewStoryData({
       title: '',
       description: '',
@@ -245,7 +293,27 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
           <strong>Stories Debug:</strong> Adding: {isAddingStory ? 'YES' : 'NO'} | 
           Editing: {editingStory?.title || 'None'} | 
-          Stories: {interviewStories.length} | Saving: {saving ? 'YES' : 'NO'}
+          Stories: {interviewStories.length} | Saving: {saving ? 'YES' : 'NO'} |
+          Error: {error || 'None'}
+        </div>
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <h4 className="font-medium text-red-900">Error</h4>
+              <p className="text-red-700 text-sm mt-1">{error}</p>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-600 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -315,6 +383,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                 disabled={saving}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                 placeholder="e.g., Switching from Netflix to Disney+"
+                maxLength={255}
               />
             </div>
 
@@ -330,6 +399,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                 disabled={saving}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                 placeholder="Brief description of the story context and decision..."
+                maxLength={1000}
               />
             </div>
 
@@ -346,6 +416,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                   disabled={saving}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                   placeholder="Describe their current situation..."
+                  maxLength={1000}
                 />
               </div>
 
@@ -361,6 +432,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
                   disabled={saving}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                   placeholder="Describe their desired outcome..."
+                  maxLength={1000}
                 />
               </div>
             </div>
@@ -376,7 +448,7 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
               </button>
               <button
                 type="submit"
-                disabled={saving || !newStoryData.title.trim()}
+                disabled={saving || !newStoryData.title.trim() || !newStoryData.description.trim() || !newStoryData.situation_a.trim() || !newStoryData.situation_b.trim()}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 transition-colors flex items-center"
               >
                 {saving ? (
