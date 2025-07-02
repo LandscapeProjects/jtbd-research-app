@@ -50,7 +50,7 @@ interface ProjectState {
   clearAuthErrors: () => Promise<void>;
 }
 
-// Universal creation helper with comprehensive error handling
+// Enhanced creation helper with aggressive timeout and connection management
 const createEntityWithRetry = async <T>(
   tableName: string,
   data: any,
@@ -63,61 +63,126 @@ const createEntityWithRetry = async <T>(
     try {
       console.log(`🔄 ${entityType} creation attempt ${attempt}/${retries}`);
       
-      // Verify auth state before creation
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      // STEP 1: Verify auth state with timeout
+      console.log(`🔍 Verifying auth for ${entityType}...`);
+      const authPromise = supabase.auth.getUser();
+      const authTimeout = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Auth verification timeout')), 5000);
+      });
+      
+      const { data: { user }, error: authError } = await Promise.race([authPromise, authTimeout]);
+      
       if (authError || !user) {
         throw new Error(`Authentication required for ${entityType} creation`);
       }
       
       console.log(`✅ Auth verified for ${entityType} creation`);
       
-      // Create with timeout protection
-      const createPromise = supabase
+      // STEP 2: Create with aggressive timeout and connection management
+      console.log(`🚀 Executing ${entityType} INSERT operation...`);
+      
+      // Create the Supabase query
+      const insertQuery = supabase
         .from(tableName)
         .insert(data)
         .select()
         .single();
-
+      
+      // Set up aggressive timeout (8 seconds instead of 15)
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`${entityType} creation timeout after 15 seconds`)), 15000);
+        setTimeout(() => {
+          console.error(`⏰ ${entityType} creation timeout after 8 seconds`);
+          reject(new Error(`${entityType} creation timeout - operation took too long`));
+        }, 8000);
       });
 
-      const { data: result, error } = await Promise.race([createPromise, timeoutPromise]);
-
-      if (error) {
-        console.error(`❌ ${entityType} creation failed (attempt ${attempt}):`, error);
+      // Race the query against timeout
+      const result = await Promise.race([insertQuery, timeoutPromise]);
+      
+      // Check for errors
+      if (result.error) {
+        console.error(`❌ ${entityType} creation failed (attempt ${attempt}):`, result.error);
         
         // If it's the last attempt, throw the error
         if (attempt === retries) {
-          throw new Error(`${entityType} creation failed: ${error.message}`);
+          throw new Error(`${entityType} creation failed: ${result.error.message}`);
         }
         
-        // Wait before retry
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        // Wait before retry with exponential backoff
+        const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
       }
 
-      if (!result) {
+      // Check for data
+      if (!result.data) {
         throw new Error(`${entityType} creation returned no data`);
       }
 
-      console.log(`✅ ${entityType} created successfully on attempt ${attempt}:`, result);
-      return result;
+      console.log(`✅ ${entityType} created successfully on attempt ${attempt}:`, result.data);
+      return result.data;
       
     } catch (error: any) {
       console.error(`💥 ${entityType} creation error (attempt ${attempt}):`, error);
       
-      // If it's the last attempt, throw the error
-      if (attempt === retries) {
-        throw error;
+      // If it's a timeout error and not the last attempt, try again immediately
+      if (error.message.includes('timeout') && attempt < retries) {
+        console.log(`🔄 Timeout detected, retrying immediately...`);
+        continue;
       }
       
-      // Wait before retry
-      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      // If it's the last attempt, throw the error
+      if (attempt === retries) {
+        throw new Error(`${entityType} creation failed after ${retries} attempts: ${error.message}`);
+      }
+      
+      // Wait before retry with exponential backoff
+      const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+      console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
   }
   
   throw new Error(`${entityType} creation failed after ${retries} attempts`);
+};
+
+// Alternative direct creation method for stories (bypass the helper if needed)
+const createStoryDirect = async (data: any): Promise<Story> => {
+  console.log('🎯 Using direct story creation method...');
+  
+  try {
+    // Verify auth first
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('Not authenticated');
+    }
+    
+    console.log('📝 Direct story insert with data:', data);
+    
+    // Use the most basic insert possible
+    const { data: story, error } = await supabase
+      .from('stories')
+      .insert(data)
+      .select('*')
+      .single();
+    
+    if (error) {
+      console.error('❌ Direct story creation failed:', error);
+      throw error;
+    }
+    
+    if (!story) {
+      throw new Error('No story data returned');
+    }
+    
+    console.log('✅ Direct story creation successful:', story);
+    return story;
+    
+  } catch (error) {
+    console.error('💥 Direct story creation error:', error);
+    throw error;
+  }
 };
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -349,8 +414,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       console.log('📝 Creating story with data:', storyData);
 
-      // Use universal creation helper
-      const story = await createEntityWithRetry<Story>('stories', storyData, 'Story');
+      // Try the universal creation helper first
+      let story: Story;
+      try {
+        console.log('🔄 Attempting story creation with retry helper...');
+        story = await createEntityWithRetry<Story>('stories', storyData, 'Story');
+      } catch (retryError) {
+        console.log('⚠️ Retry helper failed, trying direct method...', retryError);
+        // Fallback to direct creation
+        story = await createStoryDirect(storyData);
+      }
       
       // Update store
       set((state) => ({
