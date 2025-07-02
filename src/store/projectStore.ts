@@ -67,7 +67,7 @@ const createEntityWithRetry = async <T>(
       console.log(`🔍 Verifying auth for ${entityType}...`);
       const authPromise = supabase.auth.getUser();
       const authTimeout = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Auth verification timeout')), 5000);
+        setTimeout(() => reject(new Error('Auth verification timeout')), 10000);
       });
       
       const { data: { user }, error: authError } = await Promise.race([authPromise, authTimeout]);
