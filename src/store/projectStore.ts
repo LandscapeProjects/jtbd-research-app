@@ -11,11 +11,11 @@ interface ProjectState {
   forceGroups: ForceGroup[];
   matrixEntries: MatrixEntry[];
   loading: boolean;
-  isFetching: boolean; // Guard against concurrent calls
+  isFetching: boolean;
   
   // Project operations
   fetchProjects: () => Promise<void>;
-  refreshProfiles: () => Promise<void>; // Pure dynamic profile refresh
+  refreshProfiles: () => Promise<void>;
   createProject: (name: string, description?: string) => Promise<Project>;
   setCurrentProject: (project: Project) => void;
   
@@ -44,7 +44,81 @@ interface ProjectState {
   fetchMatrixEntries: (projectId: string) => Promise<void>;
   createMatrixEntry: (data: Partial<MatrixEntry>) => Promise<MatrixEntry>;
   updateMatrixEntry: (id: string, data: Partial<MatrixEntry>) => Promise<void>;
+  
+  // Error recovery
+  resetAllStores: () => void;
+  clearAuthErrors: () => Promise<void>;
 }
+
+// Universal creation helper with comprehensive error handling
+const createEntityWithRetry = async <T>(
+  tableName: string,
+  data: any,
+  entityType: string,
+  retries: number = 3
+): Promise<T> => {
+  console.log(`📝 Creating ${entityType} with data:`, data);
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`🔄 ${entityType} creation attempt ${attempt}/${retries}`);
+      
+      // Verify auth state before creation
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        throw new Error(`Authentication required for ${entityType} creation`);
+      }
+      
+      console.log(`✅ Auth verified for ${entityType} creation`);
+      
+      // Create with timeout protection
+      const createPromise = supabase
+        .from(tableName)
+        .insert(data)
+        .select()
+        .single();
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`${entityType} creation timeout after 15 seconds`)), 15000);
+      });
+
+      const { data: result, error } = await Promise.race([createPromise, timeoutPromise]);
+
+      if (error) {
+        console.error(`❌ ${entityType} creation failed (attempt ${attempt}):`, error);
+        
+        // If it's the last attempt, throw the error
+        if (attempt === retries) {
+          throw new Error(`${entityType} creation failed: ${error.message}`);
+        }
+        
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        continue;
+      }
+
+      if (!result) {
+        throw new Error(`${entityType} creation returned no data`);
+      }
+
+      console.log(`✅ ${entityType} created successfully on attempt ${attempt}:`, result);
+      return result;
+      
+    } catch (error: any) {
+      console.error(`💥 ${entityType} creation error (attempt ${attempt}):`, error);
+      
+      // If it's the last attempt, throw the error
+      if (attempt === retries) {
+        throw error;
+      }
+      
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    }
+  }
+  
+  throw new Error(`${entityType} creation failed after ${retries} attempts`);
+};
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   currentProject: null,
@@ -58,7 +132,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   isFetching: false,
 
   fetchProjects: async () => {
-    // Race condition guard
     const { isFetching } = get();
     if (isFetching) {
       console.log('⚠️ fetchProjects already in progress, skipping...');
@@ -69,7 +142,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ loading: true, isFetching: true });
     
     try {
-      // Stable projects query
       const { data: projects, error: projectsError } = await supabase
         .from('projects')
         .select('id, name, description, owner_id, status, created_at')
@@ -86,7 +158,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return;
       }
 
-      // Extract owner IDs and query profiles
       const ownerIds = [...new Set(projects.map(p => p.owner_id))];
       
       const { data: profiles, error: profilesError } = await supabase
@@ -98,7 +169,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         console.error('Profiles query error:', profilesError);
       }
 
-      // Create profile map and combine with projects
       const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
       
       const projectsWithProfiles = projects.map(project => ({
@@ -155,143 +225,49 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   createProject: async (name: string, description?: string) => {
     console.log('🚀 Starting createProject...');
-    console.log('📝 Project data:', { name, description });
-
+    
     try {
-      // STEP 1: Get authenticated user with multiple methods
-      console.log('🔍 Step 1: Getting authenticated user...');
-      
-      // Method 1: Get current session
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      console.log('📋 Session result:', { 
-        hasSession: !!sessionData.session,
-        hasUser: !!sessionData.session?.user,
-        userId: sessionData.session?.user?.id?.slice(0, 8) + '...',
-        error: sessionError?.message || 'none'
-      });
-
-      // Method 2: Get current user (fallback)
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      console.log('👤 User result:', { 
-        hasUser: !!userData.user,
-        userId: userData.user?.id?.slice(0, 8) + '...',
-        email: userData.user?.email,
-        error: userError?.message || 'none'
-      });
-
-      // Determine which user ID to use
-      const user = sessionData.session?.user || userData.user;
-      
-      if (!user) {
-        console.error('❌ No authenticated user found');
-        console.log('🔍 Session data:', sessionData);
-        console.log('🔍 User data:', userData);
+      // Verify authentication
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
         throw new Error('User not authenticated - please log in again');
       }
 
-      console.log('✅ Authenticated user found:', {
-        id: user.id,
-        email: user.email,
-        created_at: user.created_at
-      });
+      console.log('✅ Authenticated user found:', user.id);
 
-      // STEP 2: Verify user exists in profiles table
-      console.log('🔍 Step 2: Verifying user profile exists...');
-      const { data: profile, error: profileError } = await supabase
+      // Prepare project data with all required fields
+      const projectData = {
+        name: name.trim(),
+        description: description?.trim() || '',
+        owner_id: user.id,
+        status: 'active'
+      };
+
+      console.log('📝 Creating project with data:', projectData);
+
+      // Use universal creation helper
+      const project = await createEntityWithRetry<Project>('projects', projectData, 'Project');
+
+      // Get profile for display
+      const { data: profile } = await supabase
         .from('profiles')
         .select('id, full_name, email')
         .eq('id', user.id)
         .single();
 
-      console.log('👤 Profile verification:', {
-        found: !!profile,
-        profileId: profile?.id?.slice(0, 8) + '...',
-        fullName: profile?.full_name,
-        error: profileError?.message || 'none'
-      });
-
-      if (profileError && profileError.code !== 'PGRST116') {
-        console.error('❌ Profile query error:', profileError);
-        throw new Error(`Profile verification failed: ${profileError.message}`);
-      }
-
-      // STEP 3: Create project with explicit user ID
-      console.log('🔍 Step 3: Creating project in database...');
-      console.log('📝 Insert data:', {
-        name,
-        description: description || '',
-        owner_id: user.id
-      });
-
-      const { data: newProject, error: insertError } = await supabase
-        .from('projects')
-        .insert({ 
-          name, 
-          description: description || '',
-          owner_id: user.id
-        })
-        .select('id, name, description, owner_id, status, created_at')
-        .single();
-
-      console.log('📊 Insert result:', {
-        success: !!newProject,
-        projectId: newProject?.id?.slice(0, 8) + '...',
-        ownerId: newProject?.owner_id?.slice(0, 8) + '...',
-        error: insertError?.message || 'none'
-      });
-
-      if (insertError) {
-        console.error('❌ Project creation failed:', insertError);
-        console.log('🔍 Full error details:', {
-          code: insertError.code,
-          message: insertError.message,
-          details: insertError.details,
-          hint: insertError.hint
-        });
-        throw new Error(`Failed to create project: ${insertError.message}`);
-      }
-
-      if (!newProject) {
-        console.error('❌ No project returned from insert');
-        throw new Error('Project creation failed - no data returned');
-      }
-
-      // STEP 4: Add profile to project and update store
-      console.log('🔍 Step 4: Adding profile to project...');
-      const projectWithProfile = {
-        ...newProject,
-        profiles: profile || null
-      };
-
-      console.log('✅ Project created successfully:', {
-        id: projectWithProfile.id,
-        name: projectWithProfile.name,
-        owner: projectWithProfile.profiles?.full_name || 'No profile'
-      });
+      const projectWithProfile = { ...project, profiles: profile };
       
-      // Update store with new project
-      const { projects } = get();
-      set({ projects: [projectWithProfile, ...projects] });
+      // Update store
+      set((state) => ({
+        projects: [projectWithProfile, ...state.projects]
+      }));
       
       console.log('🎉 createProject completed successfully');
       return projectWithProfile;
 
     } catch (error: any) {
       console.error('💥 createProject failed:', error);
-      console.log('🔍 Error details:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack?.split('\n')[0]
-      });
-      
-      // Re-throw with user-friendly message
-      if (error.message.includes('not authenticated')) {
-        throw new Error('Please log in again to create a project');
-      } else if (error.message.includes('RLS')) {
-        throw new Error('Permission denied - please check your account access');
-      } else {
-        throw new Error(`Failed to create project: ${error.message}`);
-      }
+      throw new Error(`Failed to create project: ${error.message}`);
     }
   },
 
@@ -311,18 +287,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createInterview: async (data: Partial<Interview>) => {
-    const { data: interview, error } = await supabase
-      .from('interviews')
-      .insert(data)
-      .select()
-      .single();
+    console.log('🎤 Starting createInterview...');
+    
+    try {
+      // Prepare interview data with all required fields
+      const interviewData = {
+        project_id: data.project_id,
+        participant_name: data.participant_name?.trim() || '',
+        participant_age: data.participant_age || null,
+        participant_gender: data.participant_gender || null,
+        interview_date: data.interview_date || new Date().toISOString().split('T')[0],
+        context: data.context?.trim() || ''
+      };
 
-    if (error) throw error;
-    
-    const { interviews } = get();
-    set({ interviews: [interview, ...interviews] });
-    
-    return interview;
+      console.log('📝 Creating interview with data:', interviewData);
+
+      // Use universal creation helper
+      const interview = await createEntityWithRetry<Interview>('interviews', interviewData, 'Interview');
+      
+      // Update store
+      set((state) => ({
+        interviews: [interview, ...state.interviews]
+      }));
+      
+      console.log('🎉 createInterview completed successfully');
+      return interview;
+
+    } catch (error: any) {
+      console.error('💥 createInterview failed:', error);
+      throw new Error(`Failed to create interview: ${error.message}`);
+    }
   },
 
   fetchStories: async (projectId: string) => {
@@ -340,38 +334,40 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createStory: async (data: Partial<Story>) => {
-    console.log('📝 Store: Creating story with data:', data);
+    console.log('📖 Starting createStory...');
     
     try {
-      const { data: story, error } = await supabase
-        .from('stories')
-        .insert(data)
-        .select()
-        .single();
+      // Prepare story data with all required fields
+      const storyData = {
+        interview_id: data.interview_id,
+        title: data.title?.trim() || '',
+        description: data.description?.trim() || '',
+        situation_a: data.situation_a?.trim() || '',
+        situation_b: data.situation_b?.trim() || '',
+        cluster_id: null
+      };
 
-      if (error) {
-        console.error('❌ Store: Story creation failed:', error);
-        throw error;
-      }
+      console.log('📝 Creating story with data:', storyData);
 
-      console.log('✅ Store: Story created successfully:', story);
+      // Use universal creation helper
+      const story = await createEntityWithRetry<Story>('stories', storyData, 'Story');
       
-      // FIXED: Use functional update to prevent stale state
+      // Update store
       set((state) => ({
         stories: [story, ...state.stories]
       }));
       
-      console.log('✅ Store: Stories state updated');
+      console.log('🎉 createStory completed successfully');
       return story;
-      
-    } catch (error) {
-      console.error('💥 Store: createStory error:', error);
-      throw error;
+
+    } catch (error: any) {
+      console.error('💥 createStory failed:', error);
+      throw new Error(`Failed to create story: ${error.message}`);
     }
   },
 
   updateStory: async (id: string, data: Partial<Story>) => {
-    console.log('🔄 Store: Updating story:', id);
+    console.log('🔄 Updating story:', id);
     
     try {
       const { error } = await supabase
@@ -380,19 +376,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         .eq('id', id);
 
       if (error) {
-        console.error('❌ Store: Story update failed:', error);
+        console.error('❌ Story update failed:', error);
         throw error;
       }
 
-      console.log('✅ Store: Story updated successfully');
+      console.log('✅ Story updated successfully');
       
-      // FIXED: Use functional update to prevent stale state
       set((state) => ({
         stories: state.stories.map(s => s.id === id ? { ...s, ...data } : s)
       }));
       
     } catch (error) {
-      console.error('💥 Store: updateStory error:', error);
+      console.error('💥 updateStory error:', error);
       throw error;
     }
   },
@@ -414,37 +409,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createForce: async (storyId: string, type: ForceType, description: string) => {
-    console.log('🔥 Store: Creating force:', { storyId: storyId.slice(0, 8) + '...', type, description: description.slice(0, 30) + '...' });
+    console.log('🔥 Starting createForce...');
     
     try {
-      const { data: force, error } = await supabase
-        .from('forces')
-        .insert({ story_id: storyId, type, description })
-        .select()
-        .single();
+      const forceData = {
+        story_id: storyId,
+        type,
+        description: description.trim()
+      };
 
-      if (error) {
-        console.error('❌ Store: Force creation failed:', error);
-        throw error;
-      }
+      console.log('📝 Creating force with data:', forceData);
 
-      console.log('✅ Store: Force created successfully');
+      // Use universal creation helper
+      const force = await createEntityWithRetry<Force>('forces', forceData, 'Force');
       
-      // FIXED: Use functional update to prevent stale state
+      // Update store
       set((state) => ({
         forces: [force, ...state.forces]
       }));
       
+      console.log('🎉 createForce completed successfully');
       return force;
-      
-    } catch (error) {
-      console.error('💥 Store: createForce error:', error);
-      throw error;
+
+    } catch (error: any) {
+      console.error('💥 createForce failed:', error);
+      throw new Error(`Failed to create force: ${error.message}`);
     }
   },
 
   updateForce: async (id: string, data: Partial<Force>) => {
-    console.log('🔄 Store: Updating force:', id.slice(0, 8) + '...');
+    console.log('🔄 Updating force:', id);
     
     try {
       const { error } = await supabase
@@ -453,25 +447,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         .eq('id', id);
 
       if (error) {
-        console.error('❌ Store: Force update failed:', error);
+        console.error('❌ Force update failed:', error);
         throw error;
       }
 
-      console.log('✅ Store: Force updated successfully');
+      console.log('✅ Force updated successfully');
       
-      // FIXED: Use functional update to prevent stale state
       set((state) => ({
         forces: state.forces.map(f => f.id === id ? { ...f, ...data } : f)
       }));
       
     } catch (error) {
-      console.error('💥 Store: updateForce error:', error);
+      console.error('💥 updateForce error:', error);
       throw error;
     }
   },
 
   deleteForce: async (id: string) => {
-    console.log('🗑️ Store: Deleting force:', id.slice(0, 8) + '...');
+    console.log('🗑️ Deleting force:', id);
     
     try {
       const { error } = await supabase
@@ -480,19 +473,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         .eq('id', id);
 
       if (error) {
-        console.error('❌ Store: Force deletion failed:', error);
+        console.error('❌ Force deletion failed:', error);
         throw error;
       }
 
-      console.log('✅ Store: Force deleted successfully');
+      console.log('✅ Force deleted successfully');
       
-      // FIXED: Use functional update to prevent stale state
       set((state) => ({
         forces: state.forces.filter(f => f.id !== id)
       }));
       
     } catch (error) {
-      console.error('💥 Store: deleteForce error:', error);
+      console.error('💥 deleteForce error:', error);
       throw error;
     }
   },
@@ -509,26 +501,37 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createForceGroup: async (projectId: string, name: string, type: 'push' | 'pull') => {
-    // Set is_leftover to true if name contains "leftover"
-    const isLeftover = name.toLowerCase().includes('leftover');
+    console.log('📊 Starting createForceGroup...');
     
-    const { data: group, error } = await supabase
-      .from('force_groups')
-      .insert({ 
-        project_id: projectId, 
-        name, 
+    try {
+      const isLeftover = name.toLowerCase().includes('leftover');
+      
+      const groupData = {
+        project_id: projectId,
+        name: name.trim(),
         type,
-        is_leftover: isLeftover
-      })
-      .select()
-      .single();
+        is_leftover: isLeftover,
+        color: '#3B82F6',
+        position: 0
+      };
 
-    if (error) throw error;
-    
-    const { forceGroups } = get();
-    set({ forceGroups: [...forceGroups, group] });
-    
-    return group;
+      console.log('📝 Creating force group with data:', groupData);
+
+      // Use universal creation helper
+      const group = await createEntityWithRetry<ForceGroup>('force_groups', groupData, 'ForceGroup');
+      
+      // Update store
+      set((state) => ({
+        forceGroups: [...state.forceGroups, group]
+      }));
+      
+      console.log('🎉 createForceGroup completed successfully');
+      return group;
+
+    } catch (error: any) {
+      console.error('💥 createForceGroup failed:', error);
+      throw new Error(`Failed to create force group: ${error.message}`);
+    }
   },
 
   updateForceGroup: async (id: string, data: Partial<ForceGroup>) => {
@@ -576,18 +579,32 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createMatrixEntry: async (data: Partial<MatrixEntry>) => {
-    const { data: entry, error } = await supabase
-      .from('story_group_matrix')
-      .insert(data)
-      .select()
-      .single();
+    console.log('📋 Starting createMatrixEntry...');
+    
+    try {
+      const matrixData = {
+        story_id: data.story_id,
+        group_id: data.group_id,
+        matches: data.matches
+      };
 
-    if (error) throw error;
-    
-    const { matrixEntries } = get();
-    set({ matrixEntries: [entry, ...matrixEntries] });
-    
-    return entry;
+      console.log('📝 Creating matrix entry with data:', matrixData);
+
+      // Use universal creation helper
+      const entry = await createEntityWithRetry<MatrixEntry>('story_group_matrix', matrixData, 'MatrixEntry');
+      
+      // Update store
+      set((state) => ({
+        matrixEntries: [entry, ...state.matrixEntries]
+      }));
+      
+      console.log('🎉 createMatrixEntry completed successfully');
+      return entry;
+
+    } catch (error: any) {
+      console.error('💥 createMatrixEntry failed:', error);
+      throw new Error(`Failed to create matrix entry: ${error.message}`);
+    }
   },
 
   updateMatrixEntry: async (id: string, data: Partial<MatrixEntry>) => {
@@ -603,4 +620,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       matrixEntries: matrixEntries.map(e => e.id === id ? { ...e, ...data } : e)
     });
   },
+
+  // Error recovery functions
+  resetAllStores: () => {
+    console.log('🔄 Resetting all stores due to persistent errors');
+    set({
+      currentProject: null,
+      projects: [],
+      interviews: [],
+      stories: [],
+      forces: [],
+      forceGroups: [],
+      matrixEntries: [],
+      loading: false,
+      isFetching: false
+    });
+  },
+
+  clearAuthErrors: async () => {
+    try {
+      console.log('🔄 Clearing auth state...');
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('🔍 Current session:', session ? 'Valid' : 'Invalid');
+      
+      if (!session) {
+        console.log('⚠️ No valid session, redirecting to login');
+        window.location.href = '/';
+      }
+    } catch (error) {
+      console.error('💥 Auth cleanup failed:', error);
+      window.location.href = '/';
+    }
+  }
 }));

@@ -32,23 +32,23 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     createForce,
     updateForce,
     deleteForce,
+    resetAllStores,
+    clearAuthErrors
   } = useProjectStore();
 
   // Filter stories for this interview
   const interviewStories = stories.filter(s => s.interview_id === interviewId);
 
-  // FIXED: Stable useEffect with proper dependencies
   useEffect(() => {
     console.log('🔄 StoriesManager: Loading data for project:', projectId);
     
-    // Use Promise.all to avoid race conditions
     Promise.all([
       fetchStories(projectId),
       fetchForces(projectId)
     ]).catch(error => {
       console.error('Error loading stories data:', error);
     });
-  }, [projectId]); // FIXED: Only depend on projectId, not the functions
+  }, [projectId]);
 
   const handleCreateStory = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,30 +56,26 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     
     // Validate required fields
     if (!newStoryData.title.trim()) {
-      console.log('❌ Story title is required');
       setError('Story title is required');
       return;
     }
 
     if (!newStoryData.description.trim()) {
-      console.log('❌ Story description is required');
       setError('Story description is required');
       return;
     }
 
     if (!newStoryData.situation_a.trim()) {
-      console.log('❌ Situation A is required');
       setError('Situation A is required');
       return;
     }
 
     if (!newStoryData.situation_b.trim()) {
-      console.log('❌ Situation B is required');
       setError('Situation B is required');
       return;
     }
 
-    // FIXED: Prevent multiple submissions
+    // Prevent multiple submissions
     if (saving) {
       console.log('⚠️ Already saving story, ignoring duplicate submission');
       return;
@@ -91,14 +87,12 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     try {
       console.log('🚀 Creating story...');
       
-      // FIXED: Ensure all required fields are provided with proper types
       const storyData = {
         interview_id: interviewId,
         title: newStoryData.title.trim(),
         description: newStoryData.description.trim(),
         situation_a: newStoryData.situation_a.trim(),
         situation_b: newStoryData.situation_b.trim(),
-        // Don't include created_at/updated_at - let database handle defaults
       };
 
       console.log('📋 Story data to insert:', storyData);
@@ -118,6 +112,17 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
       
     } catch (error: any) {
       console.error('💥 Error creating story:', error);
+      
+      // Check if it's an auth error
+      if (error.message.includes('authentication') || error.message.includes('auth')) {
+        console.log('🔄 Auth error detected, attempting recovery...');
+        try {
+          await clearAuthErrors();
+        } catch (authError) {
+          console.error('Auth recovery failed:', authError);
+        }
+      }
+      
       setError(error.message || 'Failed to create story. Please try again.');
     } finally {
       setSaving(false);
@@ -128,7 +133,6 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     e.preventDefault();
     if (!editingStory) return;
 
-    // FIXED: Prevent multiple submissions
     if (saving) {
       console.log('⚠️ Already saving story update, ignoring duplicate submission');
       return;
@@ -212,8 +216,18 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
     try {
       await createForce(storyId, type, description);
       console.log('✅ Force added successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('💥 Error adding force:', error);
+      
+      // Check if it's an auth error
+      if (error.message.includes('authentication') || error.message.includes('auth')) {
+        console.log('🔄 Auth error detected, attempting recovery...');
+        try {
+          await clearAuthErrors();
+        } catch (authError) {
+          console.error('Auth recovery failed:', authError);
+        }
+      }
     }
   };
 
@@ -288,31 +302,29 @@ export function StoriesManager({ interviewId, participantName, projectId }: Stor
         </div>
       </div>
 
-      {/* Debug Info - Only in development */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
-          <strong>Stories Debug:</strong> Adding: {isAddingStory ? 'YES' : 'NO'} | 
-          Editing: {editingStory?.title || 'None'} | 
-          Stories: {interviewStories.length} | Saving: {saving ? 'YES' : 'NO'} |
-          Error: {error || 'None'}
-        </div>
-      )}
-
       {/* Error Display */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-start space-x-3">
             <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-            <div>
+            <div className="flex-1">
               <h4 className="font-medium text-red-900">Error</h4>
               <p className="text-red-700 text-sm mt-1">{error}</p>
             </div>
-            <button
-              onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-600 transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setError(null)}
+                className="text-red-400 hover:text-red-600 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <button
+                onClick={resetAllStores}
+                className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+              >
+                Reset
+              </button>
+            </div>
           </div>
         </div>
       )}
